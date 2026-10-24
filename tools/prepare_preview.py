@@ -98,14 +98,55 @@ replace_once('Backdrop.java',
              '        return longest > 0 ? Math.min(limit, longest / 1920f) : limit;')
 replace_once('HomeData.java', 'WEATHER_EVERY = 30 * 60_000L;',
              'WEATHER_EVERY = (HaierProfile.LITE ? 60 : 30) * 60_000L;')
+# Browser integration is intentionally independent of system mode switching.
+browser_source = Path(__file__).with_name('browser-shortcut.java').read_text()
+(root / 'app/src/io/freemytv/BrowserShortcut.java').write_text(
+    browser_source.replace('package io.freemytv;', 'package ' + PACKAGE + ';'))
+replace_once('HomeApps.java', '    static final int INPUTS = 7;',
+             '    static final int INPUTS = 7, BROWSER = 8;')
+replace_once('HomeApps.java',
+             '        items.add(shortcut(ALL_APPS, "all", Ui.tr("All Apps"), "apps"));\n        return items;',
+             '        items.add(shortcut(BROWSER, "browser", Ui.tr("Browser"), "browser"));\n'
+             '        items.add(shortcut(ALL_APPS, "all", Ui.tr("All Apps"), "apps"));\n        return items;')
+replace_once('HomeApps.java',
+             '        items.add(shortcut(SETTINGS, "settings", Ui.tr("Home Settings"), "settings"));',
+             '        items.add(shortcut(BROWSER, "browser", Ui.tr("Browser"), "browser"));\n'
+             '        items.add(shortcut(SETTINGS, "settings", Ui.tr("Home Settings"), "settings"));')
+replace_once('HomeApps.java', '        switch (it.kind) {\n            case APP:',
+             '        switch (it.kind) {\n            case BROWSER:\n                return BrowserShortcut.open(a);\n            case APP:')
+replace_once('Symbols.java', '        Bitmap b = get(c, name);\n        return b == null ? 0',
+             '        if ("browser".equals(name)) return pointSize * 1.15f;\n'
+             '        Bitmap b = get(c, name);\n        return b == null ? 0')
+replace_once('Symbols.java',
+             'static void draw(Context c, Canvas canvas, String name, float cx, float cy, float pointSize, int color) {',
+             'static void draw(Context c, Canvas canvas, String name, float cx, float cy, float pointSize, int color) {\n'
+             '        if ("browser".equals(name)) { BrowserShortcut.draw(canvas, cx, cy, pointSize, color); return; }')
+for catalogue in root.glob('app/assets/i18n/*.json'):
+    data = json.loads(catalogue.read_text())
+    additions = {'Browser': 'Browser', 'Install a browser for Android TV first.': 'Install a browser for Android TV first.'}
+    if catalogue.stem == 'ru':
+        additions = {'Browser': 'Браузер', 'Install a browser for Android TV first.': 'Сначала установите браузер для Android TV.'}
+    for key, value in additions.items():
+        data.setdefault(key, value)
+    catalogue.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
 ns = 'http://schemas.android.com/apk/res/android'
 ET.register_namespace('android', ns)
 a = lambda name: '{' + ns + '}' + name
 manifest = root / 'app/AndroidManifest.xml'
 tree = ET.parse(manifest)
 m = tree.getroot()
-m.set(a('versionCode'), '3')
-m.set(a('versionName'), '1.1-haier-' + args.profile + '-preview.2')
+m.set(a('versionCode'), '4')
+m.set(a('versionName'), '1.1-haier-' + args.profile + '-preview.3')
+# Android 11+ package visibility: ask only for browser intent handlers.
+queries = m.find('queries')
+intent = ET.SubElement(queries, 'intent')
+ET.SubElement(intent, 'action', {a('name'): 'android.intent.action.MAIN'})
+ET.SubElement(intent, 'category', {a('name'): 'android.intent.category.APP_BROWSER'})
+for scheme in ['http', 'https']:
+    intent = ET.SubElement(queries, 'intent')
+    ET.SubElement(intent, 'action', {a('name'): 'android.intent.action.VIEW'})
+    ET.SubElement(intent, 'category', {a('name'): 'android.intent.category.BROWSABLE'})
+    ET.SubElement(intent, 'data', {a('scheme'): scheme})
 app = m.find('application')
 app.set(a('label'), label)
 for permission in list(m.findall('uses-permission')):

@@ -33,6 +33,10 @@ By default every CI run creates a disposable signing key. To retain update compa
 
 The same optional secret can sign both distinct packages. A different signing key cannot update an installed copy. Removing only the preview app permits installation but loses that app's settings.
 
+## Browser shortcut
+
+Both profiles include a **Browser** shortcut on the shelf and in the bottom drawer. It opens an installed enabled browser with a launchable home activity, uses the system default when available, and offers a chooser for multiple candidates. Without a candidate it explains that a TV browser must be installed. No WebView, automatic installation, or page navigation is added. The globe icon uses Canvas primitives. Browser bookmarks remain in the browser. Device intent resolution and Back behavior still need a TV test.
+
 ## Device baseline
 
 See [docs/haier-baseline.md](docs/haier-baseline.md). Raw diagnostic logs, Wi-Fi details, ADB pairing data and local backups are intentionally not published here.
