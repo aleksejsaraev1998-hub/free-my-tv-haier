@@ -130,6 +130,13 @@ for catalogue in root.glob('app/assets/i18n/*.json'):
         data.setdefault(key, value)
     catalogue.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
 if args.profile == 'bento':
+    from calendar_deps import install
+    install(root)
+    build = root / 'build.sh'
+    code = build.read_text()
+    code = code.replace('-classpath "$AJ"', '-classpath "$AJ${CPSEP}app/libs/*"')
+    code = code.replace("$(find out/classes -name '*.class')", "$(find out/classes -name '*.class') app/libs/*.jar")
+    build.write_text(code)
     for source in Path(__file__).with_name('bento').glob('*.java'):
         (root / 'app/src/io/freemytv' / source.name).write_text(
             source.read_text().replace('package io.freemytv;', 'package ' + PACKAGE + ';'))
@@ -154,8 +161,8 @@ a = lambda name: '{' + ns + '}' + name
 manifest = root / 'app/AndroidManifest.xml'
 tree = ET.parse(manifest)
 m = tree.getroot()
-m.set(a('versionCode'), '6')
-m.set(a('versionName'), '1.1-haier-' + args.profile + '-preview.5')
+m.set(a('versionCode'), '7')
+m.set(a('versionName'), '1.1-haier-' + args.profile + '-preview.6')
 # Android 11+ package visibility: ask only for browser intent handlers.
 queries = m.find('queries')
 intent = ET.SubElement(queries, 'intent')

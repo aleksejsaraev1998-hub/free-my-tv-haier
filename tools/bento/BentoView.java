@@ -387,10 +387,10 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
             lines.add(line);y+=height;
         }
         String empty=!calendar.configured?Ui.tr("Connect your calendar in Settings"):
-                calendar.updated==0?Ui.tr("Waiting for calendar data"):Ui.tr("No upcoming events in the loaded period");
+                calendar.updated==0?(calendar.failed?Ui.tr("Calendar could not be loaded"):Ui.tr("Waiting for calendar data")):Ui.tr("No upcoming events in the loaded period");
         emptyBoard=layout(empty,body,664,4);
         String footer=calendar.updated==0?"":Ui.tr("Updated")+" "+new SimpleDateFormat("dd.MM HH:mm",Ui.locale()).format(new Date(calendar.updated));
-        if(calendar.failed||calendar.windowEnd>0&&System.currentTimeMillis()>=calendar.windowEnd)footer=Ui.tr("Cached")+(footer.isEmpty()?"":" · "+footer);
+        if(calendar.updated>0&&(calendar.failed||calendar.windowEnd>0&&System.currentTimeMillis()>=calendar.windowEnd))footer=Ui.tr("Cached")+(footer.isEmpty()?"":" · "+footer);
         if(!calendar.status.isEmpty())footer=CalendarStrings.translate(calendar.status)+(footer.isEmpty()?"":" · "+footer);
         else if(!calendar.configured)footer=Ui.tr("OK to connect calendar");
         else if(agenda.size()>lines.size())footer=Ui.tr("More")+" "+(agenda.size()-lines.size())+" · "+footer;

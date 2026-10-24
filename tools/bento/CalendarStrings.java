@@ -19,10 +19,13 @@ final class CalendarStrings {
             case "Unsupported calendar encoding": return Ui.tr("Unsupported calendar encoding");
             case "Calendar returned incomplete data": return Ui.tr("Calendar returned incomplete data");
             case "Too many calendar events": return Ui.tr("Too many calendar events");
-            case "Server did not expand recurring events": return Ui.tr("Server did not expand recurring events");
             case "Calendar event has no start time": return Ui.tr("Calendar event has no start time");
             case "Invalid calendar event time": return Ui.tr("Invalid calendar event time");
             case "Unsupported calendar time zone": return Ui.tr("Unsupported calendar time zone");
+            case "Unsupported calendar recurrence range": return Ui.tr("Unsupported calendar recurrence range");
+            case "Calendar event duration is too long": return Ui.tr("Calendar event duration is too long");
+            case "Calendar recurrence limit reached": return Ui.tr("Calendar recurrence limit reached");
+            case "Unsupported calendar recurrence rule": return Ui.tr("Unsupported calendar recurrence rule");
             default: return code;
         }
     }

@@ -62,8 +62,12 @@
   "Unsupported calendar encoding": "Неподдерживаемая кодировка ответа календаря",
   "Calendar returned incomplete data": "Сервер вернул неполные данные календаря",
   "Too many calendar events": "Слишком много событий календаря",
-  "Server did not expand recurring events": "Сервер не развернул повторы. Расписание не обновлено",
   "Calendar event has no start time": "В событии не указано начало",
   "Invalid calendar event time": "Некорректное время события",
-  "Unsupported calendar time zone": "Неизвестный часовой пояс события"
+  "Unsupported calendar time zone": "Неизвестный часовой пояс события",
+  "Unsupported calendar recurrence range": "Не поддерживается перенос всех последующих повторов",
+  "Calendar event duration is too long": "Слишком большая длительность события",
+  "Calendar recurrence limit reached": "Превышен лимит расчёта повторов",
+  "Unsupported calendar recurrence rule": "Не удалось разобрать правило повторения",
+  "Calendar could not be loaded": "Не удалось загрузить календарь"
 }

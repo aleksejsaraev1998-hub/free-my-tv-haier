@@ -56,6 +56,12 @@ if args.profile == 'bento':
     draw = view.split('protected void onDraw(android.graphics.Canvas);',1)[1].split('boolean onKey(',1)[0]
     assert not re.search(r'\b(new|anewarray|newarray)\b', draw), 'Allocation in Bento onDraw'
     assert 'setLayerType' not in view and 'android/webkit/WebView' not in view
+    recurrence = command(javap, '-classpath', root/'out/classes', '-c', '-p', package+'.CalendarRecurrence')
+    assert 'org/dmfs/rfc5545/recur/RecurrenceRule' in recurrence
+    assert manifest.find('application').get(ns+'allowBackup') == 'false'
+    with zipfile.ZipFile(apk) as payload:
+        assert b'Lorg/dmfs/rfc5545/recur/RecurrenceRule;' in payload.read('classes.dex')
+        assert len([n for n in payload.namelist() if n.startswith('assets/calendar-licenses/')]) == 6
     (args.output/'bento-view-bytecode.txt').write_text(view)
 for name, text in [('signature.txt', signature), ('apk-info.txt', badging),
                    ('manifest-tree.txt', binary_manifest), ('adb-bytecode.txt', bytecode)]:

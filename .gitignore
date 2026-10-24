@@ -1,0 +1,3 @@
+tools/.calendar-deps/
+__pycache__/
+*.pyc

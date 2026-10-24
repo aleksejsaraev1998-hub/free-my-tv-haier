@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compile production CalDAV code on the JDK; exercise protocol and date edge cases without an account."""
 import os, subprocess, tempfile
+from calendar_deps import ensure
 from pathlib import Path
 root = Path(__file__).resolve().parent
 harness = r'''
@@ -28,14 +29,42 @@ public class CalendarProtocolTest {
   check(day.allDay&&day.start==start&&day.end==start+86400000L);
   check(CalendarProtocol.parseIcs(event("Cancelled","DTSTART:20261025T050000Z","STATUS:CANCELLED"),start,end).isEmpty());
   check(CalendarProtocol.parseIcs(event("Old","DTSTART:20261020T050000Z",""),start,end).isEmpty());
-  String expanded=first+event("Встреча\\, план\\nРаботы","DTSTART:20261026T050000Z\r\nDTEND:20261026T060000Z","RECURRENCE-ID:20261026T050000Z");
+  String expanded=first.replace("END:VCALENDAR\r\n", "")+event("Встреча\\, план\\nРаботы","DTSTART:20261026T050000Z\r\nDTEND:20261026T060000Z","RECURRENCE-ID:20261026T050000Z").replace("BEGIN:VCALENDAR\r\n", "");
   check(CalendarProtocol.parseXml(utf(xml(expanded)),start,end).size()==2);
-  reject(()->CalendarProtocol.parseIcs(event("Daily","DTSTART:20261025T050000Z","RRULE:FREQ=DAILY"),start,end));
+  check(CalendarProtocol.parseIcs(event("Daily","DTSTART:20261020T050000Z","RRULE:FREQ=DAILY"),start,end).size()==7);
+  check(CalendarProtocol.parseIcs(event("Expired","DTSTART:20261020T050000Z","RRULE:FREQ=DAILY;COUNT=3"),start,end).isEmpty());
+  check(CalendarProtocol.parseIcs(event("Until","DTSTART:20261020T050000Z","RRULE:FREQ=DAILY;UNTIL=20261026T050000Z"),start,end).size()==2);
+  check(CalendarProtocol.parseIcs(event("Workdays","DTSTART;TZID=Asia/Yekaterinburg:20200101T100000","RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;WKST=MO"),start,end).size()==5);
+  list=CalendarProtocol.parseIcs(event("Excluded","DTSTART:20261020T050000Z","RRULE:FREQ=DAILY\r\nEXDATE:20261025T050000Z,20261027T050000Z"),start,end);
+  check(list.size()==5&&list.get(0).start==Instant.parse("2026-10-26T05:00:00Z").toEpochMilli());
+  check(CalendarProtocol.parseIcs(event("Exrule","DTSTART:20261020T050000Z","RRULE:FREQ=DAILY\r\nEXRULE:FREQ=WEEKLY;BYDAY=SU,SA"),start,end).size()==5);
+  check(CalendarProtocol.parseIcs(event("Extra","DTSTART:20261025T050000Z","RDATE:20261026T050000Z,20261026T050000Z"),start,end).size()==2);
+  list=CalendarProtocol.parseIcs(event("Period","DTSTART:20261025T050000Z","RDATE;VALUE=PERIOD:20261026T050000Z/PT2H"),start,end);
+  check(list.size()==2&&list.get(1).end-list.get(1).start==7200000L);
+  String series=event("Series","DTSTART;TZID=Asia/Yekaterinburg:20261020T100000\r\nDTEND;TZID=Asia/Yekaterinburg:20261020T110000","RRULE:FREQ=DAILY").replace("END:VCALENDAR\r\n", "");
+  String moved="BEGIN:VEVENT\r\nUID:Series\r\nRECURRENCE-ID;TZID=Asia/Yekaterinburg:20261026T100000\r\nDTSTART;TZID=Asia/Yekaterinburg:20261026T130000\r\nSUMMARY:Moved\r\nEND:VEVENT\r\n";
+  String cancelled="BEGIN:VEVENT\r\nUID:Series\r\nRECURRENCE-ID;TZID=Asia/Yekaterinburg:20261027T100000\r\nSTATUS:CANCELLED\r\nEND:VEVENT\r\n";
+  list=CalendarProtocol.parseIcs(series+moved+cancelled+"END:VCALENDAR\r\n",start,end);
+  check(list.size()==6);CalendarProtocol.Event move=list.stream().filter(e->e.title.equals("Moved")).findFirst().get();
+  check(move.start==Instant.parse("2026-10-26T08:00:00Z").toEpochMilli()&&move.end-move.start==3600000L);
+  String movedIn=moved.replace("20261026T100000","20261019T100000");
+  check(CalendarProtocol.parseIcs(series+movedIn+"END:VCALENDAR\r\n",start,end).size()==8);
+  reject(()->CalendarProtocol.parseIcs(series+moved.replace("RECURRENCE-ID;","RECURRENCE-ID;RANGE=THISANDFUTURE;")+"END:VCALENDAR\r\n",start,end));
+  list=CalendarProtocol.parseIcs(event("Last weekday","DTSTART:20200131T050000Z","RRULE:FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=-1"),start,end);
+  check(list.size()==1&&list.get(0).start==Instant.parse("2026-10-30T05:00:00Z").toEpochMilli());
+  long march=Instant.parse("2026-03-28T00:00:00Z").toEpochMilli();
+  list=CalendarProtocol.parseIcs(event("DST","DTSTART;TZID=Europe/Berlin:20260328T090000\r\nDURATION:PT1H","RRULE:FREQ=DAILY;COUNT=3"),march,march+3*86400000L);
+  check(list.size()==3&&list.get(0).start==Instant.parse("2026-03-28T08:00:00Z").toEpochMilli()&&list.get(1).start==Instant.parse("2026-03-29T07:00:00Z").toEpochMilli());
+  list=CalendarProtocol.parseIcs(event("DST day","DTSTART;TZID=Europe/Berlin:20260328T090000\r\nDURATION:P1D","RRULE:FREQ=DAILY;COUNT=2"),march,march+4*86400000L);
+  check(list.get(0).end-list.get(0).start==23*3600000L);
+  list=CalendarProtocol.parseIcs(event("All day daily","DTSTART;VALUE=DATE:20261020\r\nDTEND;VALUE=DATE:20261022","RRULE:FREQ=DAILY"),start,end);
+  check(list.size()==8&&list.stream().allMatch(e->e.allDay&&e.end-e.start==2*86400000L));
   reject(()->CalendarProtocol.parseXml(utf("<!DOCTYPE x [<!ENTITY a SYSTEM 'file:///etc/passwd'>]>"+xml(first)),start,end));
   reject(()->CalendarProtocol.parseXml(utf(xml(first).replace("200 OK","403 Forbidden")),start,end));
   reject(()->CalendarProtocol.parseXml(utf("<html/>"),start,end));
   reject(()->CalendarProtocol.endpoint("http://example.com/calendar/"));reject(()->CalendarProtocol.endpoint("https://user:password@example.com/calendar/"));reject(()->CalendarProtocol.endpoint("https://example.com/personal.ics"));
-  check(CalendarProtocol.query(start,end).contains("<c:expand ")&&CalendarProtocol.query(start,end).contains("start=\"20261024T190000Z\""));
+  check(!CalendarProtocol.query(start,end).contains("<c:expand ")&&CalendarProtocol.query(start,end).contains("start=\"20261024T190000Z\""));
+  check(CalendarProtocol.date("20261025T100000","DTSTART;TZID=/inverse.ca/20091015_1/Asia/Yekaterinburg")==Instant.parse("2026-10-25T05:00:00Z").toEpochMilli());
   String body=xml(first);byte[] bytes=utf(body);String header="HTTP/1.1 207 Multi-Status\r\nContent-Length: "+bytes.length+"\r\n\r\n";
   ByteArrayOutputStream response=new ByteArrayOutputStream();response.write(utf(header));response.write(bytes);
   check(Arrays.equals(CalendarProtocol.response(new ByteArrayInputStream(response.toByteArray())),bytes));
@@ -45,7 +74,7 @@ public class CalendarProtocolTest {
   reject(()->CalendarProtocol.response(new ByteArrayInputStream(utf("HTTP/1.1 302 Found\r\nLocation: https://other.example/\r\n\r\n"))));
   reject(()->CalendarProtocol.response(new ByteArrayInputStream(utf("HTTP/1.1 207 Multi-Status\r\nContent-Length: 5\r\n\r\n123"))));
   reject(()->CalendarProtocol.response(new ByteArrayInputStream(utf("HTTP/1.1 207 Multi-Status\r\nContent-Length: 99999999\r\n\r\n"))));
-  System.out.println("PASS: CalDAV REPORT, HTTP framing, UTF-8, dates/time zones, all-day, duration, expanded recurrence, cancellation, bounds, auth, redirect and XML guards");
+  System.out.println("PASS: CalDAV REPORT, HTTP framing, UTF-8, dates/time zones, all-day, duration, local recurrence, cancellation, bounds, auth, redirect and XML guards");
  }
 }
 '''
@@ -54,5 +83,7 @@ with tempfile.TemporaryDirectory() as temp:
     source = temp/'CalendarProtocolTest.java'
     source.write_text(harness)
     jdk = Path(os.environ['JAVA_HOME'])/'bin'
-    subprocess.run([str(jdk/'javac'), '-encoding', 'UTF-8', '-d', str(temp), str(root/'bento/CalendarProtocol.java'), str(source)], check=True)
-    subprocess.run([str(jdk/'java'), '-cp', str(temp), 'io.freemytv.CalendarProtocolTest'], check=True)
+    jars=ensure(root/'.calendar-deps')
+    classpath=os.pathsep.join(str(p) for p in jars)
+    subprocess.run([str(jdk/'javac'), '-cp', classpath, '-encoding', 'UTF-8', '-d', str(temp), str(root/'bento/CalendarProtocol.java'), str(root/'bento/CalendarRecurrence.java'), str(source)], check=True)
+    subprocess.run([str(jdk/'java'), '-cp', str(temp)+os.pathsep+classpath, 'io.freemytv.CalendarProtocolTest'], check=True)

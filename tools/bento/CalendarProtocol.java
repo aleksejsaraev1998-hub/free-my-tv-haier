@@ -11,7 +11,7 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.*;
 import org.xml.sax.InputSource;
 
-/** Read-only CalDAV REPORT, bounded HTTP/1.1 and expanded iCalendar instances. No Android dependencies. */
+/** Read-only CalDAV REPORT, bounded HTTP/1.1 and iCalendar data. No Android dependencies. */
 final class CalendarProtocol {
     static final int LIMIT=2*1024*1024;
     static final String DAV="DAV:", CAL="urn:ietf:params:xml:ns:caldav";
@@ -34,7 +34,7 @@ final class CalendarProtocol {
     }
     static String query(long start,long end) {
         String range="start=\""+UTC.format(Instant.ofEpochMilli(start))+"\" end=\""+UTC.format(Instant.ofEpochMilli(end))+"\"";
-        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?><c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\""+CAL+"\"><d:prop><c:calendar-data><c:expand "+range+"/></c:calendar-data></d:prop><c:filter><c:comp-filter name=\"VCALENDAR\"><c:comp-filter name=\"VEVENT\"><c:time-range "+range+"/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>";
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?><c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\""+CAL+"\"><d:prop><c:calendar-data/></d:prop><c:filter><c:comp-filter name=\"VCALENDAR\"><c:comp-filter name=\"VEVENT\"><c:time-range "+range+"/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>";
     }
     static List<Event> fetch(String address,String username,String password,long start,long end) throws Exception {
         URI uri=endpoint(address);
@@ -123,44 +123,26 @@ final class CalendarProtocol {
         events.sort(Comparator.comparingLong(e->e.start));return events;
     }
     static List<Event> parseIcs(String input,long from,long to) throws Exception {
-        if(!input.contains("BEGIN:VCALENDAR")||!input.contains("END:VCALENDAR"))throw new Failure("Invalid calendar response");
-        List<Event> events=new ArrayList<>();Event event=null;boolean cancelled=false,recurrence=false;int nested=0;String duration="";
-        for(String row:input.replace("\r\n", "\n").replaceAll("\n[ \t]", "").split("\n")) {
-            if(row.equals("BEGIN:VEVENT")){if(event!=null)throw new Failure("Invalid calendar response");event=new Event();event.start=Long.MIN_VALUE;event.end=Long.MIN_VALUE;cancelled=false;recurrence=false;duration="";nested=0;continue;}
-            if(event==null)continue;
-            if(row.equals("END:VEVENT")) {
-                if(recurrence)throw new Failure("Server did not expand recurring events");
-                if(event.uid.isEmpty())throw new Failure("Invalid calendar response");
-                if(event.start==Long.MIN_VALUE)throw new Failure("Calendar event has no start time");
-                if(event.end==Long.MIN_VALUE)event.end=!duration.isEmpty()?event.start+duration(duration):event.allDay?Instant.ofEpochMilli(event.start).atZone(ZoneId.systemDefault()).plusDays(1).toInstant().toEpochMilli():event.start;
-                if(event.end<event.start)throw new Failure("Invalid calendar event time");
-                if(!cancelled&&event.start<to&&(event.end>from||event.start>=from&&event.end==event.start))events.add(event);
-                event=null;continue;
-            }
-            if(row.startsWith("BEGIN:")){nested++;continue;}if(row.startsWith("END:")){nested--;continue;}if(nested>0)continue;
-            int colon=colon(row);if(colon<0)continue;
-            String property=row.substring(0,colon),value=row.substring(colon+1),name=property.split(";",2)[0].toUpperCase(Locale.ROOT);
-            switch(name) {
-                case "DTSTART":event.allDay=value.length()==8;event.start=date(value,property);break;
-                case "DTEND":event.end=date(value,property);break;
-                case "DURATION":duration=value;break;
-                case "SUMMARY":event.title=unescape(value);if(event.title.length()>500)event.title=event.title.substring(0,500);break;
-                case "UID":event.uid=value;break;
-                case "STATUS":cancelled="CANCELLED".equalsIgnoreCase(value);break;
-                case "RRULE":case "RDATE":case "EXDATE":case "EXRULE":recurrence=true;break;
-                default:break;
-            }
-        }
-        if(event!=null)throw new Failure("Invalid calendar response");return events;
+        return CalendarRecurrence.expand(input,from,to);
     }
-    private static int colon(String row) {boolean quoted=false;for(int i=0;i<row.length();i++){char c=row.charAt(i);if(c=='"')quoted=!quoted;if(c==':'&&!quoted)return i;}return -1;}
+    static int colon(String row) {boolean quoted=false;for(int i=0;i<row.length();i++){char c=row.charAt(i);if(c=='"')quoted=!quoted;if(c==':'&&!quoted)return i;}return -1;}
     static long date(String value,String property) throws Exception {
         ZoneId zone=ZoneId.systemDefault();
-        for(String param:property.split(";"))if(param.startsWith("TZID=")){String id=param.substring(5).replace("\"","");try{zone=ZoneId.of(id);}catch(Exception e){throw new Failure("Unsupported calendar time zone");}}
+        for(String param:property.split(";"))if(param.startsWith("TZID=")){String id=param.substring(5).replace("\"","");try{zone=zoneId(id);}catch(Exception e){throw new Failure("Unsupported calendar time zone");}}
         if(value.length()==8)return LocalDate.parse(value,DateTimeFormatter.BASIC_ISO_DATE).atStartOfDay(zone).toInstant().toEpochMilli();
         if(value.endsWith("Z")){zone=ZoneOffset.UTC;value=value.substring(0,value.length()-1);}
         return LocalDateTime.parse(value,DateTimeFormatter.ofPattern(value.length()==13?"yyyyMMdd'T'HHmm":"yyyyMMdd'T'HHmmss")).atZone(zone).toInstant().toEpochMilli();
     }
-    private static long duration(String value) {if(value.matches("P[0-9]+W"))return Math.multiplyExact(Long.parseLong(value.substring(1,value.length()-1)),604800000L);return Duration.parse(value).toMillis();}
+    static ZoneId zoneId(String id) throws Failure {
+        try{return ZoneId.of(id);}catch(Exception ignored){}
+        // Legacy SOGo/libical namespace prefixes still identify an IANA time zone.
+        if(id.startsWith("/inverse.ca/")||id.startsWith("/freeassociation.sourceforge.net/Tzfile/")||id.startsWith("/mozilla.org/")) {
+            for(int i=1;i<id.length();i++)if(id.charAt(i-1)=='/') {
+                String suffix=id.substring(i);if(!suffix.contains("/"))continue;
+                try{return ZoneId.of(suffix);}catch(Exception ignored){}
+            }
+        }
+        throw new Failure("Unsupported calendar time zone");
+    }
     static String unescape(String value) {StringBuilder b=new StringBuilder();for(int i=0;i<value.length();i++){char c=value.charAt(i);if(c=='\\'&&i+1<value.length()){c=value.charAt(++i);if(c=='n'||c=='N')c='\n';}b.append(c);}return b.toString();}
 }
