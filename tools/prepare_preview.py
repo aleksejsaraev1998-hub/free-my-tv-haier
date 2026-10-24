@@ -80,6 +80,18 @@ replace_once('DreamView.java',
              '        Choreographer.getInstance().postFrameCallback(this);\n    }\n\n    /** The clock that drives',
              '        if (HaierProfile.LITE) Choreographer.getInstance().postFrameCallbackDelayed(this, 100);\n'
              '        else Choreographer.getInstance().postFrameCallback(this);\n    }\n\n    /** The clock that drives')
+replace_once('SettingsActivity.java', '        boolean onKey(KeyEvent e) {',
+             '        boolean onKey(KeyEvent e) {\n'
+             '            if (HaierProfile.LITE && running) {\n'
+             '                Choreographer.getInstance().removeFrameCallback(this);\n'
+             '                Choreographer.getInstance().postFrameCallback(this);\n'
+             '            }')
+replace_once('SettingsActivity.java', 'focus = id - 1;\n                    invalidate();',
+             'focus = id - 1;\n'
+             '                    if (HaierProfile.LITE && running) {\n'
+             '                        Choreographer.getInstance().removeFrameCallback(SettingsView.this);\n'
+             '                        Choreographer.getInstance().postFrameCallback(SettingsView.this);\n'
+             '                    }\n                    invalidate();')
 replace_once('Backdrop.java',
              'return longest > 0 ? Math.min(1f, longest / 1920f) : 1f;',
              'float limit = HaierProfile.LITE ? 2f / 3f : 1f;\n'
