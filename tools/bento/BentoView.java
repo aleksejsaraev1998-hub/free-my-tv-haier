@@ -40,6 +40,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
+import java.util.Set;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -60,22 +61,25 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
     private final RectF scratch = new RectF();
     private final RectF[] tiles = new RectF[8];
     private final List<App> apps = new ArrayList<>();
+    private final List<App> quickApps = new ArrayList<>();
+    private final MonthPanel monthPanel=new MonthPanel();
+    private final TextPaint quickLabel=text(24,TEXT,Ui.regular);
+    private boolean calendarActive;private int quickFocus;
     private List<String[]> candidates = new ArrayList<>();
     private List<HomeApps.Item> inputs = new ArrayList<>();
-    private final List<TaskLine> lines = new ArrayList<>();
     private final SharedPreferences board;
     private final BentoData data;
     private final CalendarFeed calendar;
     private AlertDialog dialog;
     private ValueAnimator animator;
-    private boolean running, destroyed, loading;
+    private boolean running, destroyed, loading,reloadApps;
     private int loadedVersion=-1, focus=2, shelfFocus, hiddenTasks;
     private float scale=1, offsetX, offsetY, focusProgress=1;
     private long minute=-1;
     private String date1="",date2="",hours="",minutes="",boardFooter="",weatherRange="",rateFooter="",city="";
     private int hourLeft,hourTop,minuteLeft,minuteTop;
-    private StaticLayout emptyBoard, quote, calendarFooter;
-    private final String[] headings = {"", "", Ui.tr("Calendar"), Ui.tr("Live TV"), Ui.tr("HDMI Inputs"), Ui.tr("Settings"), Ui.tr("Exchange rates · RUB"), Ui.tr("Thought of the week")};
+    private StaticLayout calendarFooter;
+    private final String[] headings = {"", "", Ui.tr("Calendar"), Ui.tr("Live TV"), Ui.tr("HDMI Inputs"), Ui.tr("Settings"), Ui.tr("Exchange rates · RUB"), Ui.tr("Quick launch")};
     private final String[] symbols = {"","","","live_tv","hdmi","settings","",""};
     private final Runnable tick = new Runnable() {
         @Override public void run() {
@@ -90,10 +94,6 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
     private static final class App {
         String label,pkg; int kind; Bitmap image; float dim=.65f; RectF rect=new RectF(); StaticLayout text;
     }
-    private static final class TaskLine {
-        StaticLayout layout,caption; float x,y;
-    }
-
     BentoView(Activity a) {
         super(a); activity=a;
         board=a.getSharedPreferences("bento-board",0);
@@ -118,7 +118,8 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
     void resume() {
         running=true;data.listen(this);calendar.listen(this);calendar.refresh(false);data.refresh();updateClock();rebuildBoard();
         handler.removeCallbacks(tick);handler.post(tick);
-        if (loadedVersion!=Prefs.version) loadApps();
+        // Returning from Google Play may have changed installed apps without changing preferences.
+        loadApps();
     }
     void pause() {
         running=false;handler.removeCallbacks(tick);data.listen(null);calendar.listen(null);
@@ -147,7 +148,7 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
         invalidate();
     }
     private void loadApps() {
-        if(loading) return;loading=true; final int version=Prefs.version;
+        if(loading){reloadApps=true;return;}loading=true; final int version=Prefs.version;
         loader.execute(()->{
             List<String[]> choices=HomeApps.shelfCandidates(activity);
             List<String> selected=Prefs.shelf();
@@ -156,25 +157,14 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
             for(String pkg:selected) {
                 if(result.size()>=4) break;
                 if(HomeApps.launchIntent(activity.getPackageManager(),pkg)==null) continue;
-                App app=new App(); app.pkg=pkg;app.kind=0;app.label=pkg;
-                for(String[] c:choices) if(c[0].equals(pkg)) app.label=c[1];
-                try {
-                    Drawable drawable=activity.getPackageManager().getApplicationBanner(pkg);
-                    if(drawable==null) drawable=activity.getPackageManager().getApplicationIcon(pkg);
-                    int dw=Math.max(1,drawable.getIntrinsicWidth()),dh=Math.max(1,drawable.getIntrinsicHeight());
-                    float k=Math.min(240f/dw,96f/dh);
-                    int w=Math.max(1,Math.round(dw*k)),h=Math.max(1,Math.round(dh*k));
-                    app.image=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);
-                    drawable.setBounds(0,0,w,h);drawable.draw(new Canvas(app.image));
-                    long brightness=0;int count=0;
-                    for(int y=0;y<h;y+=Math.max(1,h/16)) for(int x=0;x<w;x+=Math.max(1,w/16)) {
-                        int color=app.image.getPixel(x,y);
-                        if(Color.alpha(color)<32) continue;
-                        brightness+=(Color.red(color)*2126L+Color.green(color)*7152L+Color.blue(color)*722L)/10000;count++;
-                    }
-                    if(count>0) app.dim=1f-.58f*(brightness/(255f*count));
-                } catch(Exception ignored) {}
-                app.text=layout(app.label,label,220,1);result.add(app);
+                result.add(loadApp(pkg,choices));
+            }
+            List<App> quick=new ArrayList<>();JSONArray savedQuick;
+            try{savedQuick=new JSONArray(board.getString("quick-apps","[]"));}catch(Exception e){savedQuick=new JSONArray();}
+            for(int i=0;i<4;i++) {String pkg=savedQuick.optString(i);App app;
+                if(!pkg.isEmpty()&&HomeApps.launchIntent(activity.getPackageManager(),pkg)!=null)app=loadApp(pkg,choices);
+                else {app=new App();app.kind=4;app.label=Ui.tr("Add app");}
+                int col=i%2,row=i/2;app.rect.set(1576+144*col,406+174*row,1696+144*col,556+174*row);app.text=layout(app.label,quickLabel,108,2);quick.add(app);
             }
             App browser=new App();browser.kind=1;browser.label=Ui.tr("Browser");result.add(browser);
             App vpn=new App();vpn.kind=2;vpn.label="VPN";result.add(vpn);
@@ -182,10 +172,31 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
             List<HomeApps.Item> found=HomeApps.allInputs(activity);
             handler.post(()->{
                 loading=false;if(destroyed) return;
-                candidates=choices;inputs=found;apps.clear();apps.addAll(result);loadedVersion=version;
-                shelfFocus=Math.min(shelfFocus,apps.size()-1);layoutApps();invalidate();
+                candidates=choices;inputs=found;apps.clear();apps.addAll(result);quickApps.clear();quickApps.addAll(quick);loadedVersion=version;
+                shelfFocus=Math.min(shelfFocus,apps.size()-1);layoutApps();invalidate();if(reloadApps){reloadApps=false;loadApps();}
             });
         });
+    }
+    private App loadApp(String pkg,List<String[]> choices) {
+        App app=new App(); app.pkg=pkg;app.kind=0;app.label=pkg;
+        for(String[] c:choices) if(c[0].equals(pkg)) app.label=c[1];
+        try {
+            Drawable drawable=activity.getPackageManager().getApplicationBanner(pkg);
+            if(drawable==null) drawable=activity.getPackageManager().getApplicationIcon(pkg);
+            int dw=Math.max(1,drawable.getIntrinsicWidth()),dh=Math.max(1,drawable.getIntrinsicHeight());
+            float k=Math.min(240f/dw,96f/dh);
+            int w=Math.max(1,Math.round(dw*k)),h=Math.max(1,Math.round(dh*k));
+            app.image=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);
+            drawable.setBounds(0,0,w,h);drawable.draw(new Canvas(app.image));
+            long brightness=0;int count=0;
+            for(int y=0;y<h;y+=Math.max(1,h/16)) for(int x=0;x<w;x+=Math.max(1,w/16)) {
+                int color=app.image.getPixel(x,y);
+                if(Color.alpha(color)<32) continue;
+                brightness+=(Color.red(color)*2126L+Color.green(color)*7152L+Color.blue(color)*722L)/10000;count++;
+            }
+            if(count>0) app.dim=1f-.58f*(brightness/(255f*count));
+        } catch(Exception ignored) {}
+        app.text=layout(app.label,label,220,1);return app;
     }
     private void layoutApps() {
         int n=apps.size();if(n==0)return;
@@ -215,13 +226,7 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
             c.drawText(weatherRange,80,740,label);
             c.drawText(data.condition,80,772,label);
         } else if(id==2) {
-            c.drawText(headings[id],r.left+40,108,label);
-            if(lines.isEmpty()) drawLayout(c,emptyBoard,r.left+40,170);
-            else for(int index=0;index<lines.size();index++) {
-                TaskLine line=lines.get(index);
-                drawLayout(c,line.caption,line.x,line.y);
-                drawLayout(c,line.layout,line.x,line.y+38);
-            }
+            monthPanel.draw(c,calendarActive);
             drawLayout(c,calendarFooter,r.left+40,708);
         } else if(id>=3&&id<=5) {
             // Draw icons at logical size, prewarmed for the physical UI scale.
@@ -233,7 +238,15 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
             c.drawText("€",r.left+40,219,body);c.drawText(data.eur,r.left+83,219,number);arrow(c,data.eurDirection,r.right-54,219);
         } else {
             c.drawText(headings[id],r.left+40,376,label);
-            drawLayout(c,quote,r.left+40,r.bottom-40-quote.getHeight());
+            for(int i=0;i<quickApps.size();i++) {
+                App app=quickApps.get(i);RectF cell=app.rect;fill.setColor(focus==7&&quickFocus==i?FOCUSED:0xFF24262C);c.drawRoundRect(cell,18,18,fill);
+                if(focus==7&&quickFocus==i){border.setColor(TEXT);border.setStrokeWidth(2);c.drawRoundRect(cell,18,18,border);}
+                c.save();c.clipRect(cell.left+6,cell.top+6,cell.right-6,cell.bottom-6);
+                if(app.image!=null){float k=Math.min(100f/app.image.getWidth(),60f/app.image.getHeight());float w=app.image.getWidth()*k,h=app.image.getHeight()*k;
+                    scratch.set(cell.centerX()-w/2,cell.top+12,cell.centerX()+w/2,cell.top+12+h);bitmapPaint.setAlpha(focus==7&&quickFocus==i?255:Math.round(255*app.dim));c.drawBitmap(app.image,null,scratch,bitmapPaint);
+                }else {number.setTextAlign(Paint.Align.CENTER);c.drawText("+",cell.centerX(),cell.top+65,number);number.setTextAlign(Paint.Align.LEFT);}
+                drawLayout(c,app.text,cell.left+6,cell.top+82);c.restore();
+            }
         }
         c.restore();
     }
@@ -276,11 +289,19 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
     }
     boolean onKey(KeyEvent event) {
         int code=event.getKeyCode();boolean down=event.getAction()==KeyEvent.ACTION_DOWN;
-        if(code==KeyEvent.KEYCODE_BACK) {if(!down) activity.finish();return true;}
-        if(code==KeyEvent.KEYCODE_MENU) {if(!down) settings();return true;}
+        if(code==KeyEvent.KEYCODE_BACK) {if(!down){if(calendarActive){calendarActive=false;rebuildBoard();}else activity.finish();}return true;}
+        if(code==KeyEvent.KEYCODE_MENU) {if(!down){if(calendarActive)calendarMenu();else if(focus==7)editQuickApps();else settings();}return true;}
+        if(calendarActive&&(code==92||code==93)){if(down)changeDate(CalendarMonth.shiftMonth(monthPanel.selected,code==92?-1:1));return true;}
         if(code==KeyEvent.KEYCODE_DPAD_CENTER||code==KeyEvent.KEYCODE_ENTER) {if(!down&&!event.isCanceled()) activate();return true;}
         if(code!=19&&code!=20&&code!=21&&code!=22)return false;
         if(!down)return true;
+        if(calendarActive){changeDate(monthPanel.selected.plusDays(code==21?-1:code==22?1:code==19?-7:7));return true;}
+        if(focus==7){
+            if(code==21&&quickFocus%2==1){quickFocus--;invalidate();return true;}
+            if(code==22&&quickFocus%2==0){quickFocus++;invalidate();return true;}
+            if(code==19&&quickFocus>=2){quickFocus-=2;invalidate();return true;}
+            if(code==20&&quickFocus<2){quickFocus+=2;invalidate();return true;}
+        }
         if(focus==8) {
             if(code==21)shelfFocus=Math.max(0,shelfFocus-1);
             if(code==22)shelfFocus=Math.min(apps.size()-1,shelfFocus+1);
@@ -302,6 +323,13 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
     @Override public boolean onTouchEvent(MotionEvent event) {
         if(event.getAction()!=MotionEvent.ACTION_UP)return true;
         float x=(event.getX()-offsetX)/scale,y=(event.getY()-offsetY)/scale;
+        if(tiles[2].contains(x,y)) {
+            focus=2;if(y<130&&x>930){changeDate(x<1000?CalendarMonth.shiftMonth(monthPanel.selected,-1):x>1100?CalendarMonth.shiftMonth(monthPanel.selected,1):LocalDate.now());return true;}
+            LocalDate day=monthPanel.hit(x,y);if(day!=null){calendarActive=true;changeDate(day);return true;}
+            activate();return true;
+        }
+        calendarActive=false;
+        for(int i=0;i<quickApps.size();i++)if(quickApps.get(i).rect.contains(x,y)){focus=7;quickFocus=i;activate();return true;}
         for(int i=0;i<tiles.length;i++)if(tiles[i].contains(x,y)){focus=i;animateFocus();activate();return true;}
         for(int i=0;i<apps.size();i++)if(apps.get(i).rect.contains(x,y)){focus=8;shelfFocus=i;animateFocus();activate();return true;}
         return true;
@@ -313,11 +341,11 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
     private void activate() {
         if(focus==0)return;
         if(focus==1||focus==6){data.refresh();message(Ui.tr("Online data refresh requested"));return;}
-        if(focus==2){calendarMenu();return;}
+        if(focus==2){if(!calendar.configured){calendarSettings();return;}if(calendarActive)calendarEvents();else {calendarActive=true;rebuildBoard();}return;}
         if(focus==3){open(HomeApps.action(HomeApps.LIVE_TV,"live",headings[3],"live_tv"));return;}
         if(focus==4){showInputs();return;}
         if(focus==5){settings();return;}
-        if(focus==7){editQuote();return;}
+        if(focus==7){if(quickApps.isEmpty()||quickApps.get(quickFocus).kind==4)editQuickApps();else open(HomeApps.app(quickApps.get(quickFocus).pkg,quickApps.get(quickFocus).label));return;}
         if(apps.isEmpty())return;App app=apps.get(shelfFocus);
         if(app.kind==0)open(HomeApps.app(app.pkg,app.label));
         else if(app.kind==1){if(!BrowserShortcut.open(activity))message(Ui.tr("Could not open this item"));}
@@ -325,11 +353,12 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
         else showAllApps();
     }
     private void settings() {
-        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Settings")).setItems(new String[]{Ui.tr("Calendar"),Ui.tr("Shelf"),Ui.tr("Home Settings"),Ui.tr("TV Settings"),Ui.tr("Data sources")},(d,index)->{
+        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Settings")).setItems(new String[]{Ui.tr("Calendars"),Ui.tr("Shelf"),Ui.tr("Quick launch"),Ui.tr("Home Settings"),Ui.tr("TV Settings"),Ui.tr("Data sources")},(d,index)->{
             if(index==0)calendarSettings();
             else if(index==1)editShelf();
-            else if(index==2)activity.startActivity(new Intent(activity,SettingsActivity.class));
-            else if(index==3)activity.startActivity(new Intent(Settings.ACTION_SETTINGS));
+            else if(index==2)editQuickApps();
+            else if(index==3)activity.startActivity(new Intent(activity,SettingsActivity.class));
+            else if(index==4)activity.startActivity(new Intent(Settings.ACTION_SETTINGS));
             else dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Data sources"))
                     .setMessage("MET Norway · CC BY 4.0\nhttps://api.met.no\n\nCBR: https://www.cbr-xml-daily.ru\nhttps://www.cbr.ru")
                     .setPositiveButton(Ui.tr("Close"),null).show();
@@ -364,92 +393,108 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
                     else if(on)selection.add(pkg);else selection.remove(pkg);
                 }).setPositiveButton(Ui.tr("Save"),(d,n)->{Prefs.setShelf(selection);loadApps();}).setNegativeButton(Ui.tr("Cancel"),null).show();
     }
-    @Override public void calendarChanged() {if(!destroyed)rebuildBoard();}
-    private List<CalendarProtocol.Event> upcoming() {
-        long now=System.currentTimeMillis();List<CalendarProtocol.Event> result=new ArrayList<>();
-        for(CalendarProtocol.Event e:calendar.events)if(e.end>now||e.start>=now)result.add(e);
-        return result;
+    private void editQuickApps() {
+        JSONArray old;try{old=new JSONArray(board.getString("quick-apps","[]"));}catch(Exception e){old=new JSONArray();}
+        List<String> selected=new ArrayList<>();for(int i=0;i<old.length();i++)selected.add(old.optString(i));
+        String[] names=new String[candidates.size()];boolean[] checks=new boolean[names.length];
+        for(int i=0;i<names.length;i++){names[i]=candidates.get(i)[1];checks[i]=selected.contains(candidates.get(i)[0]);}
+        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Quick launch")).setMultiChoiceItems(names,checks,(d,index,on)->{
+            String pkg=candidates.get(index)[0];if(on&&selected.size()>=4){((AlertDialog)d).getListView().setItemChecked(index,false);message(Ui.tr("Choose up to four apps"));}else if(on)selected.add(pkg);else selected.remove(pkg);
+        }).setPositiveButton(Ui.tr("Save"),(d,n)->{board.edit().putString("quick-apps",new JSONArray(selected).toString()).apply();loadApps();}).setNegativeButton(Ui.tr("Cancel"),null).show();
     }
-    private String eventCaption(CalendarProtocol.Event e) {
-        ZoneId zone=ZoneId.systemDefault();LocalDate day=Instant.ofEpochMilli(e.start).atZone(zone).toLocalDate(),today=LocalDate.now(zone);
-        String date=day.equals(today)?Ui.tr("Today"):day.equals(today.plusDays(1))?Ui.tr("Tomorrow"):new SimpleDateFormat("EEE, d MMM",Ui.locale()).format(new Date(e.start));
-        if(e.allDay)return date+" · "+Ui.tr("All day");
-        String time=new SimpleDateFormat("HH:mm",Ui.locale()).format(new Date(e.start))+"–"+new SimpleDateFormat("HH:mm",Ui.locale()).format(new Date(e.end));
-        long now=System.currentTimeMillis();return (e.start<=now&&e.end>now?Ui.tr("Now"):date)+" · "+time;
+    @Override public void calendarChanged() {if(!destroyed)rebuildBoard();}
+    private void changeDate(LocalDate date) {
+        if(date.getYear()<1970||date.getYear()>2100)return;
+        monthPanel.select(date);if(!calendar.month.equals(monthPanel.month))calendar.setMonth(monthPanel.month);else rebuildBoard();
     }
     private void rebuildBoard() {
-        lines.clear();List<CalendarProtocol.Event> agenda=upcoming();float y=156;
-        for(CalendarProtocol.Event event:agenda) {
-            TaskLine line=new TaskLine();line.x=484;line.y=y;
-            line.caption=layout(eventCaption(event),label,664,1);
-            line.layout=layout(event.title.isEmpty()?Ui.tr("Busy"):event.title,body,664,2);
-            float height=38+line.layout.getHeight()+24;if(y+height>698)break;
-            lines.add(line);y+=height;
-        }
-        String empty=!calendar.configured?Ui.tr("Connect your calendar in Settings"):
-                calendar.updated==0?(calendar.failed?Ui.tr("Calendar could not be loaded"):Ui.tr("Waiting for calendar data")):Ui.tr("No upcoming events in the loaded period");
-        emptyBoard=layout(empty,body,664,4);
+        String empty=!calendar.configured?Ui.tr("Connect your calendar in Settings"):calendar.activeCount==0?Ui.tr("Choose visible calendars"):calendar.loaded?Ui.tr("No events on this day"):calendar.failed?Ui.tr("Calendar could not be loaded"):Ui.tr("Waiting for calendar data");
+        monthPanel.update(calendar.events,empty);
         String footer=calendar.updated==0?"":Ui.tr("Updated")+" "+new SimpleDateFormat("dd.MM HH:mm",Ui.locale()).format(new Date(calendar.updated));
-        if(calendar.updated>0&&(calendar.failed||calendar.windowEnd>0&&System.currentTimeMillis()>=calendar.windowEnd))footer=Ui.tr("Cached")+(footer.isEmpty()?"":" · "+footer);
-        if(!calendar.status.isEmpty())footer=CalendarStrings.translate(calendar.status)+(footer.isEmpty()?"":" · "+footer);
+        if(calendar.updated>0&&calendar.failed)footer=Ui.tr("Cached")+" · "+footer;
+        if(!calendar.status.isEmpty())footer=CalendarStrings.translate(calendar.status)+(calendar.problemSource.isEmpty()?"":" · "+calendar.problemSource)+(footer.isEmpty()?"":" · "+footer);
         else if(!calendar.configured)footer=Ui.tr("OK to connect calendar");
-        else if(agenda.size()>lines.size())footer=Ui.tr("More")+" "+(agenda.size()-lines.size())+" · "+footer;
-        calendarFooter=layout(footer,label,664,2);
-        String value=board.getString("quote","");quote=layout(value.isEmpty()?Ui.tr("OK to set a thought"):value,body,264,3);
-        invalidate();
+        else if(monthPanel.total>monthPanel.visible)footer=Ui.tr("More")+" "+(monthPanel.total-monthPanel.visible)+" · "+footer;
+        else footer=(calendarActive?Ui.tr("Arrows: day · OK: events · Back: exit"):Ui.tr("OK: choose day · Menu: calendars"))+(footer.isEmpty()?"":" · "+footer);
+        calendarFooter=layout(footer,label,664,2);invalidate();
     }
     private void calendarMenu() {
-        if(!calendar.configured){calendarSettings();return;}
         dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Calendar"))
-            .setItems(new String[]{Ui.tr("Next seven days"),Ui.tr("Refresh calendar"),Ui.tr("Calendar settings")},(d,index)->{
-                if(index==0)calendarEvents();else if(index==1){calendar.refresh(true);}else calendarSettings();
+            .setItems(new String[]{Ui.tr("Today"),Ui.tr("Previous month"),Ui.tr("Next month"),Ui.tr("Refresh calendar"),Ui.tr("Calendars")},(d,index)->{
+                if(index==0)changeDate(LocalDate.now());else if(index==1)changeDate(CalendarMonth.shiftMonth(monthPanel.selected,-1));else if(index==2)changeDate(CalendarMonth.shiftMonth(monthPanel.selected,1));else if(index==3)calendar.refresh(true);else calendarSettings();
             }).show();
     }
     private void calendarEvents() {
-        List<CalendarProtocol.Event> events=upcoming();
-        if(events.isEmpty()){dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Calendar")).setMessage(Ui.tr("No upcoming events in the loaded period")).setPositiveButton(Ui.tr("Close"),null).show();return;}
-        String[] names=new String[events.size()];
-        for(int i=0;i<names.length;i++){CalendarProtocol.Event e=events.get(i);names[i]=eventCaption(e)+"\n"+(e.title.isEmpty()?Ui.tr("Busy"):e.title);}
-        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Next seven days")).setItems(names,(d,n)->{
-            CalendarProtocol.Event e=events.get(n);dialog=new NightDialogs.Builder(activity).setTitle(e.title.isEmpty()?Ui.tr("Busy"):e.title).setMessage(eventCaption(e)).setPositiveButton(Ui.tr("Close"),null).show();
-        }).setNegativeButton(Ui.tr("Close"),null).show();
+        List<CalendarProtocol.Event> events=monthPanel.events();LinearLayout list=new LinearLayout(activity);list.setOrientation(LinearLayout.VERTICAL);list.setPadding(20,8,20,8);
+        if(events.isEmpty()){android.widget.TextView t=new android.widget.TextView(activity);t.setText(calendar.loaded?Ui.tr("No events on this day"):Ui.tr("Waiting for calendar data"));list.addView(t);}
+        for(CalendarProtocol.Event e:events) {
+            android.widget.TextView t=new android.widget.TextView(activity);String times=e.allDay?Ui.tr("All day"):new SimpleDateFormat("HH:mm",Ui.locale()).format(new Date(e.start))+"–"+new SimpleDateFormat("HH:mm",Ui.locale()).format(new Date(e.end));
+            t.setText(times+" · "+e.sourceName+"\n"+(e.title.isEmpty()?Ui.tr("Busy"):e.title));t.setPadding(18,14,18,14);t.setFocusable(true);t.setBackground(NightDialogs.selector());list.addView(t);
+        }
+        ScrollView scroll=new ScrollView(activity);scroll.addView(list);dialog=new NightDialogs.Builder(activity).setTitle(monthPanel.selected.toString()).setView(scroll).setPositiveButton(Ui.tr("Close"),null).show();
+        dialog.getWindow().setLayout(Math.round(getWidth()*.72f),Math.round(getHeight()*.76f));
     }
     private EditText calendarField(LinearLayout form,String hint,String value,int type) {
-        EditText input=new EditText(activity);input.setSingleLine(true);input.setHint(hint);input.setText(value);input.setInputType(type);
-        input.setSaveEnabled(false);input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(2048)});
-        form.addView(input,new LinearLayout.LayoutParams(-1,-2));return input;
+        EditText input=new EditText(activity);input.setSingleLine(true);input.setHint(hint);input.setText(value);input.setInputType(type);input.setSaveEnabled(false);input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(2048)});form.addView(input,new LinearLayout.LayoutParams(-1,-2));return input;
     }
+    private boolean calendarReady() {if(!calendar.ready||calendar.isBusy()){message(Ui.tr("Calendar is busy; try again shortly"));return false;}return true;}
     private void calendarSettings() {
-        if(!calendar.ready||calendar.isBusy()){message(Ui.tr("Calendar is busy; try again shortly"));return;}
-        LinearLayout form=new LinearLayout(activity);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(24,12,24,12);
-        form.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
-        EditText address=calendarField(form,Ui.tr("CalDAV URL ({login} uses your login)"),calendar.url,InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);
-        EditText login=calendarField(form,Ui.tr("Calendar login"),calendar.user,InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
-        EditText secret=calendarField(form,calendar.hasPassword()?Ui.tr("Password (blank keeps saved password)"):Ui.tr("Calendar password"),"",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        ScrollView scroll=new ScrollView(activity);scroll.addView(form);
-        AlertDialog.Builder builder=new NightDialogs.Builder(activity).setTitle(Ui.tr("Calendar settings")).setView(scroll)
-            .setPositiveButton(Ui.tr("Save"),null).setNegativeButton(Ui.tr("Cancel"),null);
-        if(calendar.configured)builder.setNeutralButton(Ui.tr("Disconnect calendar"),(d,n)->{
-            dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Disconnect calendar"))
-                .setMessage(Ui.tr("Remove saved login and cached events from this TV?"))
-                .setPositiveButton(Ui.tr("Disconnect calendar"),(x,y)->calendar.disconnect()).setNegativeButton(Ui.tr("Cancel"),null).show();
-        });
-        dialog=builder.create();dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);dialog.show();
-        final AlertDialog editor=dialog;
+        if(!calendar.ready){message(Ui.tr("Calendar is busy; try again shortly"));return;}
+        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Calendars")).setItems(new String[]{Ui.tr("Visible calendars"),Ui.tr("Find calendars on server"),Ui.tr("Add calendar by URL"),Ui.tr("Manage calendars")},(d,index)->{
+            if(!calendarReady())return;
+            if(index==0)chooseCalendars();else if(index==1)findCalendars();else if(index==2)addCalendar();else manageCalendars();
+        }).show();
+    }
+    private void chooseCalendars() {
+        String[] names=new String[calendar.sources.size()];boolean[] checked=new boolean[names.length];Set<String> selected=new java.util.HashSet<>();
+        for(int i=0;i<names.length;i++){CalendarFeed.Source source=calendar.sources.get(i);names[i]=source.name;checked[i]=source.enabled;if(source.enabled)selected.add(source.id);}
+        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Visible calendars")).setMultiChoiceItems(names,checked,(d,n,on)->{String id=calendar.sources.get(n).id;if(on)selected.add(id);else selected.remove(id);})
+            .setPositiveButton(Ui.tr("Save"),(d,n)->{if(calendarReady())calendar.choose(selected);}).setNegativeButton(Ui.tr("Cancel"),null).show();
+    }
+    private void addCalendar() {
+        if(calendar.sources.size()>=12){message(Ui.tr("Calendar limit reached"));return;}
+        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Add calendar by URL")).setItems(new String[]{"CalDAV",Ui.tr("ICS subscription")},(d,n)->{CalendarFeed.Source source=new CalendarFeed.Source();source.ics=n==1;source.color=CalendarFeed.COLORS[calendar.sources.size()%CalendarFeed.COLORS.length];if(source.ics)source.url="";editCalendar(source);}).show();
+    }
+    private void manageCalendars() {
+        String[] names=new String[calendar.sources.size()];for(int i=0;i<names.length;i++)names[i]=calendar.sources.get(i).name;
+        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Manage calendars")).setItems(names,(d,n)->sourceMenu(calendar.sources.get(n))).show();
+    }
+    private void sourceMenu(CalendarFeed.Source source) {
+        dialog=new NightDialogs.Builder(activity).setTitle(source.name).setItems(new String[]{Ui.tr("Edit connection"),Ui.tr("Calendar color"),Ui.tr("Remove calendar")},(d,index)->{
+            if(!calendarReady())return;if(index==0)editCalendar(source.copy());else if(index==1) {
+                dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Calendar color")).setItems(new String[]{Ui.tr("Red"),Ui.tr("Purple"),Ui.tr("Teal"),Ui.tr("Yellow"),Ui.tr("Green"),Ui.tr("Blue")},(x,n)->{CalendarFeed.Source next=source.copy();next.color=CalendarFeed.COLORS[n];calendar.save(next);}).show();
+            }else dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Remove calendar")).setMessage(Ui.tr("Remove this calendar from the TV? Server events stay unchanged."))
+                .setPositiveButton(Ui.tr("Remove calendar"),(x,n)->calendar.remove(source.id)).setNegativeButton(Ui.tr("Cancel"),null).show();
+        }).show();
+    }
+    private void editCalendar(CalendarFeed.Source source) {
+        LinearLayout form=new LinearLayout(activity);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(24,12,24,12);form.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
+        EditText name=calendarField(form,Ui.tr("Calendar name"),source.name,InputType.TYPE_CLASS_TEXT);
+        EditText address=calendarField(form,source.ics?Ui.tr("HTTPS / webcal ICS URL"):Ui.tr("CalDAV URL ({login} uses your login)"),source.url,InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);
+        EditText login=calendarField(form,source.ics?Ui.tr("Login (optional for public ICS)"):Ui.tr("Calendar login"),source.user,InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        EditText secret=calendarField(form,source.hasPassword()?Ui.tr("Password (blank keeps saved password)"):Ui.tr("Calendar password"),"",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        ScrollView scroll=new ScrollView(activity);scroll.addView(form);dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Calendar settings")).setView(scroll).setPositiveButton(Ui.tr("Save"),null).setNegativeButton(Ui.tr("Cancel"),null).create();
+        dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);dialog.show();final AlertDialog editor=dialog;
         editor.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
-            String user=login.getText().toString().trim(),password=secret.getText().toString();
-            String encoded=android.net.Uri.encode(user);String url=address.getText().toString().trim().replace("{login}",encoded);
-            try {
-                CalendarProtocol.endpoint(url);
-                if(user.isEmpty()||user.contains(":")||password.isEmpty()&&(!calendar.hasPassword()||(!user.equals(calendar.user)||!url.equals(calendar.url))))throw new Exception();
+            if(!calendarReady())return;String user=login.getText().toString().trim(),password=secret.getText().toString(),url=address.getText().toString().trim().replace("{login}",android.net.Uri.encode(user));
+            try{if(source.ics)url=CalendarProtocol.resource(url).toString();else CalendarProtocol.endpoint(url);
+                if(user.contains(":")||!source.ics&&user.isEmpty()||!user.isEmpty()&&password.isEmpty()&&(!source.hasPassword()||!user.equals(source.user)||!url.equals(source.url)))throw new Exception();
             }catch(Exception e){message(Ui.tr("Check HTTPS URL, login and password"));return;}
-            calendar.save(url,user,password);secret.setText("");editor.dismiss();
+            CalendarFeed.Source next=source.copy();next.name=name.getText().toString().trim();if(next.name.isEmpty())next.name=source.ics?"ICS":"CalDAV";next.url=url;next.user=user;next.password=user.isEmpty()?"":password.isEmpty()?source.password:password;calendar.save(next);secret.setText("");editor.dismiss();
         });
     }
-    private void editQuote() {
-        EditText input=new EditText(activity);input.setText(board.getString("quote",""));input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(400)});
-        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Thought of the week")).setView(input)
-                .setPositiveButton(Ui.tr("Save"),(d,n)->{board.edit().putString("quote",input.getText().toString().trim()).apply();rebuildBoard();})
-                .setNegativeButton(Ui.tr("Cancel"),null).show();
+    private void findCalendars() {
+        List<CalendarFeed.Source> accounts=new ArrayList<>();for(CalendarFeed.Source source:calendar.sources)if(!source.ics&&!source.user.isEmpty())accounts.add(source);
+        if(accounts.isEmpty()){message(Ui.tr("Connect a CalDAV account first"));addCalendar();return;}
+        String[] names=new String[accounts.size()];for(int i=0;i<names.length;i++)names[i]=accounts.get(i).name;
+        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Find calendars on server")).setItems(names,(d,n)->{
+            CalendarFeed.Source account=accounts.get(n);calendar.discover(account,(found,error)->{
+                if(destroyed||!running)return;if(!error.isEmpty()){message(CalendarStrings.translate(error));return;}if(found.isEmpty()){message(Ui.tr("No calendars found; add a URL manually"));return;}
+                String[] labels=new String[found.size()];boolean[] checks=new boolean[labels.length];Set<Integer> selected=new java.util.HashSet<>();for(int i=0;i<labels.length;i++)labels[i]=found.get(i).name;
+                dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Add selected calendars")).setMultiChoiceItems(labels,checks,(x,index,on)->{if(on)selected.add(index);else selected.remove(index);})
+                    .setPositiveButton(Ui.tr("Add selected calendars"),(x,index)->{if(!calendarReady())return;List<CalendarProtocol.Collection> chosen=new ArrayList<>();for(int i:selected)chosen.add(found.get(i));calendar.addDiscovered(account,chosen);})
+                    .setNegativeButton(Ui.tr("Cancel"),null).show();
+            });
+        }).show();
     }
 }

@@ -15,7 +15,7 @@ final class CalendarStrings {
             case "Calendar response is too large": return Ui.tr("Calendar response is too large");
             case "Invalid calendar response": return Ui.tr("Invalid calendar response");
             case "Calendar redirected; check the URL": return Ui.tr("Calendar redirected; check the URL");
-            case "Calendar server rejected REPORT": return Ui.tr("Calendar server rejected REPORT");
+            case "Calendar server rejected request": return Ui.tr("Calendar server rejected request");
             case "Unsupported calendar encoding": return Ui.tr("Unsupported calendar encoding");
             case "Calendar returned incomplete data": return Ui.tr("Calendar returned incomplete data");
             case "Too many calendar events": return Ui.tr("Too many calendar events");
@@ -26,6 +26,8 @@ final class CalendarStrings {
             case "Calendar event duration is too long": return Ui.tr("Calendar event duration is too long");
             case "Calendar recurrence limit reached": return Ui.tr("Calendar recurrence limit reached");
             case "Unsupported calendar recurrence rule": return Ui.tr("Unsupported calendar recurrence rule");
+            case "Too many calendars": return Ui.tr("Too many calendars");
+            case "Finding calendars": return Ui.tr("Finding calendars");
             default: return code;
         }
     }

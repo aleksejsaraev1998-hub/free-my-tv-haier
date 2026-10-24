@@ -56,6 +56,13 @@ if args.profile == 'bento':
     draw = view.split('protected void onDraw(android.graphics.Canvas);',1)[1].split('boolean onKey(',1)[0]
     assert not re.search(r'\b(new|anewarray|newarray)\b', draw), 'Allocation in Bento onDraw'
     assert 'setLayerType' not in view and 'android/webkit/WebView' not in view
+    month = command(javap, '-classpath', root/'out/classes', '-c', '-p', package+'.MonthPanel')
+    paint = month.split('void draw(android.graphics.Canvas, boolean);',1)[1].split('java.time.LocalDate hit(',1)[0]
+    assert not re.search(r'\b(new|anewarray|newarray)\b', paint), 'Allocation in month painting'
+    assert 'CalendarMonth' in month
+    protocol = command(javap, '-classpath', root/'out/classes', '-c', '-p', package+'.CalendarProtocol')
+    assert 'String PROPFIND' in protocol and 'String REPORT' in protocol and 'String GET' in protocol
+    assert not re.search(r'String (PUT|POST|DELETE|MKCALENDAR|PROPPATCH)\b', protocol), 'Calendar write method introduced'
     recurrence = command(javap, '-classpath', root/'out/classes', '-c', '-p', package+'.CalendarRecurrence')
     assert 'org/dmfs/rfc5545/recur/RecurrenceRule' in recurrence
     assert manifest.find('application').get(ns+'allowBackup') == 'false'

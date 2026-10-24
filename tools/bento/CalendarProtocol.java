@@ -17,17 +17,15 @@ final class CalendarProtocol {
     static final String DAV="DAV:", CAL="urn:ietf:params:xml:ns:caldav";
     static final DateTimeFormatter UTC=DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'").withZone(ZoneOffset.UTC);
     static final class Event {
-        String title="",uid="";long start,end;boolean allDay;
+        String title="",uid="",source="",sourceName="";int color=0xFFAA706C;long start,end;boolean allDay;
     }
     static final class Failure extends IOException {
         final String code;
         Failure(String value){super(value);code=value;}
     }
     static URI endpoint(String value) throws Exception {
-        URI uri=new URI(value.trim());
-        if(!"https".equalsIgnoreCase(uri.getScheme())||uri.getHost()==null||uri.getUserInfo()!=null||uri.getFragment()!=null||uri.getQuery()!=null)
-            throw new Failure("Calendar needs a clean HTTPS CalDAV URL");
-        if(uri.getPort()==0||uri.getPort()>65535)throw new Failure("Calendar needs a clean HTTPS CalDAV URL");
+        URI uri=resource(value);
+        if(uri.getQuery()!=null)throw new Failure("Calendar needs a clean HTTPS CalDAV URL");
         String path=uri.getRawPath();
         if(path==null||!path.endsWith("/"))throw new Failure("Use the CalDAV collection URL ending in /");
         return uri;
@@ -36,22 +34,60 @@ final class CalendarProtocol {
         String range="start=\""+UTC.format(Instant.ofEpochMilli(start))+"\" end=\""+UTC.format(Instant.ofEpochMilli(end))+"\"";
         return "<?xml version=\"1.0\" encoding=\"UTF-8\"?><c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\""+CAL+"\"><d:prop><c:calendar-data/></d:prop><c:filter><c:comp-filter name=\"VCALENDAR\"><c:comp-filter name=\"VEVENT\"><c:time-range "+range+"/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>";
     }
+    static URI resource(String address) throws Exception {
+        URI uri=new URI(address.trim().replaceFirst("^webcal:","https:"));
+        if(!"https".equalsIgnoreCase(uri.getScheme())||uri.getHost()==null||uri.getUserInfo()!=null||uri.getFragment()!=null||uri.getPort()==0||uri.getPort()>65535)
+            throw new Failure("Calendar needs a clean HTTPS CalDAV URL");
+        return new URI(uri.toASCIIString());
+    }
+    static boolean sameOrigin(URI a,URI b){return a.getScheme().equalsIgnoreCase(b.getScheme())&&a.getHost().equalsIgnoreCase(b.getHost())&&(a.getPort()<0?443:a.getPort())==(b.getPort()<0?443:b.getPort());}
     static List<Event> fetch(String address,String username,String password,long start,long end) throws Exception {
-        URI uri=endpoint(address);
-        if(username.isEmpty()||username.indexOf(':')>=0||username.indexOf('\r')>=0||username.indexOf('\n')>=0)throw new Failure("Check calendar login and password");
-        byte[] payload=query(start,end).getBytes(StandardCharsets.UTF_8);
-        String host=uri.getHost();int port=uri.getPort()<0?443:uri.getPort();
-        // Android HttpURLConnection does not allow REPORT. Use platform TLS with hostname verification enabled.
+        return parseXml(request("REPORT",endpoint(address),username,password,query(start,end),207),start,end);
+    }
+    static List<Event> fetchIcs(String address,String username,String password,long start,long end) throws Exception {
+        byte[] bytes=request("GET",resource(address),username,password,"",200);
+        return parseIcs(new String(bytes,StandardCharsets.UTF_8).replace("\uFEFF",""),start,end);
+    }
+    static final class Collection {String url,name;int color;}
+    static List<Collection> discover(String address,String user,String password) throws Exception {
+        URI parent=endpoint(address).resolve("../");
+        String body="<d:propfind xmlns:d=\"DAV:\" xmlns:c=\""+CAL+"\" xmlns:a=\"http://apple.com/ns/ical/\"><d:prop><d:resourcetype/><d:displayname/><a:calendar-color/></d:prop></d:propfind>";
+        return collections(request("PROPFIND",parent,user,password,body,207),parent);
+    }
+    static List<Collection> collections(byte[] bytes,URI parent) throws Exception {
+        Document doc=xml(bytes);List<Collection> result=new ArrayList<>();Set<String> seen=new HashSet<>();
+        NodeList responses=doc.getElementsByTagNameNS(DAV,"response");
+        for(int i=0;i<responses.getLength();i++) {
+            Element response=(Element)responses.item(i);NodeList hrefs=response.getElementsByTagNameNS(DAV,"href");if(hrefs.getLength()==0)continue;
+            URI target=parent.resolve(hrefs.item(0).getTextContent().trim());
+            if(!sameOrigin(parent,target))continue;try{endpoint(target.toString());}catch(Exception ignored){continue;}
+            boolean calendar=false;String name="",color="";NodeList stats=response.getElementsByTagNameNS(DAV,"propstat");
+            for(int j=0;j<stats.getLength();j++) {
+                Element stat=(Element)stats.item(j);NodeList statuses=stat.getElementsByTagNameNS(DAV,"status");
+                if(statuses.getLength()!=1||!statuses.item(0).getTextContent().contains(" 200"))continue;
+                calendar|=stat.getElementsByTagNameNS(CAL,"calendar").getLength()>0;
+                NodeList names=stat.getElementsByTagNameNS(DAV,"displayname");if(names.getLength()>0)name=names.item(0).getTextContent();
+                NodeList colors=stat.getElementsByTagNameNS("http://apple.com/ns/ical/","calendar-color");if(colors.getLength()>0)color=colors.item(0).getTextContent();
+            }
+            if(calendar&&seen.add(target.toString())) {Collection c=new Collection();c.url=target.toString();c.name=name.isEmpty()?target.getPath():name;c.color=0xFFAA706C;
+                if(color.matches("#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?"))c.color=0xFF000000|(int)Long.parseLong(color.substring(1,7),16);
+                result.add(c);if(result.size()>100)throw new Failure("Too many calendars");
+            }
+        }
+        return result;
+    }
+    private static byte[] request(String method,URI uri,String username,String password,String body,int expected) throws Exception {
+        if(!username.isEmpty()&&(username.indexOf(':')>=0||username.indexOf('\r')>=0||username.indexOf('\n')>=0))throw new Failure("Check calendar login and password");
+        byte[] payload=body.getBytes(StandardCharsets.UTF_8);String host=uri.getHost();int port=uri.getPort()<0?443:uri.getPort();
+        // HttpURLConnection does not accept WebDAV verbs on Android. Platform TLS still verifies host and trust chain.
         try(Socket tcp=new Socket()) {
             tcp.connect(new InetSocketAddress(host,port),10000);tcp.setSoTimeout(12000);
             try(SSLSocket socket=(SSLSocket)((SSLSocketFactory)SSLSocketFactory.getDefault()).createSocket(tcp,host,port,true)) {
-                SSLParameters params=socket.getSSLParameters();params.setEndpointIdentificationAlgorithm("HTTPS");socket.setSSLParameters(params);
-                socket.setSoTimeout(12000);socket.startHandshake();
-                String auth=Base64.getEncoder().encodeToString((username+":"+password).getBytes(StandardCharsets.UTF_8));
-                String authority=uri.getRawAuthority();
-                String request="REPORT "+uri.getRawPath()+" HTTP/1.1\r\nHost: "+authority+"\r\nAuthorization: Basic "+auth+"\r\nDepth: 1\r\nContent-Type: application/xml; charset=utf-8\r\nAccept: application/xml\r\nAccept-Encoding: identity\r\nUser-Agent: FreeMyTV-Haier-Calendar/1\r\nConnection: close\r\nContent-Length: "+payload.length+"\r\n\r\n";
-                OutputStream out=socket.getOutputStream();out.write(request.getBytes(StandardCharsets.US_ASCII));out.write(payload);out.flush();
-                return parseXml(response(socket.getInputStream()),start,end);
+                SSLParameters params=socket.getSSLParameters();params.setEndpointIdentificationAlgorithm("HTTPS");socket.setSSLParameters(params);socket.setSoTimeout(12000);socket.startHandshake();
+                String auth=username.isEmpty()?"":"Authorization: Basic "+Base64.getEncoder().encodeToString((username+":"+password).getBytes(StandardCharsets.UTF_8))+"\r\n";
+                String path=uri.getRawPath();if(path==null||path.isEmpty())path="/";if(uri.getRawQuery()!=null)path+="?"+uri.getRawQuery();
+                String request=method+" "+path+" HTTP/1.1\r\nHost: "+uri.getRawAuthority()+"\r\n"+auth+(method.equals("GET")?"":"Depth: 1\r\n")+"Content-Type: application/xml; charset=utf-8\r\nAccept: application/xml, text/calendar\r\nAccept-Encoding: identity\r\nUser-Agent: FreeMyTV-Haier-Calendar/2\r\nConnection: close\r\nContent-Length: "+payload.length+"\r\n\r\n";
+                OutputStream out=socket.getOutputStream();out.write(request.getBytes(StandardCharsets.US_ASCII));out.write(payload);out.flush();return response(socket.getInputStream(),expected);
             }
         }
     }
@@ -63,13 +99,14 @@ final class CalendarProtocol {
         }
         throw new EOFException();
     }
-    static byte[] response(InputStream input) throws Exception {
+    static byte[] response(InputStream input) throws Exception {return response(input,207);}
+    static byte[] response(InputStream input,int expected) throws Exception {
         InputStream in=new BufferedInputStream(input);
         String status=line(in);String[] parts=status.split(" ");
         if(parts.length<2||!parts[0].startsWith("HTTP/1."))throw new Failure("Invalid calendar response");
         int code=Integer.parseInt(parts[1]);
         if(code==401||code==403)throw new Failure("Check calendar login and password");
-        if(code!=207)throw new Failure(code>=300&&code<400?"Calendar redirected; check the URL":"Calendar server rejected REPORT");
+        if(code!=expected)throw new Failure(code>=300&&code<400?"Calendar redirected; check the URL":"Calendar server rejected request");
         Map<String,String> headers=new HashMap<>();int size=0;
         for(String h;!(h=line(in)).isEmpty();) {
             size+=h.length();if(size>32768)throw new Failure("Calendar response is too large");
@@ -98,7 +135,7 @@ final class CalendarProtocol {
     private static void copy(InputStream in,OutputStream out,int length) throws IOException {
         byte[] buffer=new byte[8192];while(length>0){int n=in.read(buffer,0,Math.min(length,buffer.length));if(n<0)throw new EOFException();out.write(buffer,0,n);length-=n;}
     }
-    static List<Event> parseXml(byte[] bytes,long start,long end) throws Exception {
+    private static Document xml(byte[] bytes) throws Exception {
         if(bytes.length>LIMIT)throw new Failure("Calendar response is too large");
         String xml=new String(bytes,StandardCharsets.UTF_8);
         // DTDs and entities are never needed in CalDAV. Reject before the platform parser sees them.
@@ -107,6 +144,10 @@ final class CalendarProtocol {
         javax.xml.parsers.DocumentBuilder builder=f.newDocumentBuilder();builder.setEntityResolver((p,s)->{throw new org.xml.sax.SAXException("External entities disabled");});
         Document doc=builder.parse(new InputSource(new StringReader(xml)));
         Element root=doc.getDocumentElement();if(!DAV.equals(root.getNamespaceURI())||!"multistatus".equals(root.getLocalName()))throw new Failure("Invalid calendar response");
+        return doc;
+    }
+    static List<Event> parseXml(byte[] bytes,long start,long end) throws Exception {
+        Document doc=xml(bytes);
         List<Event> events=new ArrayList<>();Set<String> seen=new HashSet<>();
         NodeList statuses=doc.getElementsByTagNameNS(DAV,"propstat");
         for(int i=0;i<statuses.getLength();i++) {
