@@ -4,6 +4,10 @@ Safe standalone preview for Haier Android TV FF Pro (MediaTek m7632, Android 14,
 
 The build reads upstream [simbasjungles/free-my-tv](https://github.com/simbasjungles/free-my-tv) at reviewed commit `aa34335d25fa2224053d1bb16851e4522a6bbeb0`. It does not modify upstream.
 
+## Bento Preview
+
+The approved night Bento layout is implemented as a third, separate **bento** profile: `io.freemytv.haierpreview.bento`. It installs alongside Lite for rollback and keeps system HOME untouched. See [Bento features, installation limits and tests](docs/bento-preview.md). It includes local persistent tasks/thought, MET Norway weather, exchange rates, browser/VPN shortcuts and shelf selection. LAN board sync is not enabled.
+
 ## Features and comparison
 
 See [the Russian feature comparison and TV test plan](docs/features-ru.md). Standard and Lite are separate app packages and can be installed side by side. Lite disables AGSL effects, caps image sizes and reduces animation/update rates; device performance remains unmeasured.
@@ -21,7 +25,7 @@ See [the Russian feature comparison and TV test plan](docs/features-ru.md). Stan
 
 Actions → **Haier Android TV 32-bit preview** → Run workflow.
 
-The workflow builds both **standard** and **lite** profiles. Each produces its own artifact.
+The workflow builds **standard**, **lite** and **bento** profiles. Each produces its own artifact.
 
 The workflow installs JDK/SDK only on the GitHub runner and publishes an artifact containing the APK, SHA256, signing certificate and manifest information. No Git or Android SDK installation is needed on the user's PC.
 

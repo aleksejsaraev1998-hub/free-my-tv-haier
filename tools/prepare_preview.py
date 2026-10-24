@@ -11,11 +11,11 @@ import argparse
 PIN = 'aa34335d25fa2224053d1bb16851e4522a6bbeb0'
 parser = argparse.ArgumentParser()
 parser.add_argument('source')
-parser.add_argument('--profile', choices=['standard', 'lite'], default='standard')
+parser.add_argument('--profile', choices=['standard', 'lite', 'bento'], default='standard')
 args = parser.parse_args()
-lite = args.profile == 'lite'
-PACKAGE = 'io.freemytv.haierpreview' + ('.lite' if lite else '')
-label = 'Free My TV Haier ' + ('Lite Preview' if lite else 'Preview')
+lite = args.profile in ('lite', 'bento')
+PACKAGE = 'io.freemytv.haierpreview' + ('.' + args.profile if args.profile != 'standard' else '')
+label = 'Free My TV Haier ' + ('Bento Preview' if args.profile == 'bento' else 'Lite Preview' if lite else 'Preview')
 root = Path(args.source).resolve()
 head = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
 if head != PIN:
@@ -129,14 +129,33 @@ for catalogue in root.glob('app/assets/i18n/*.json'):
     for key, value in additions.items():
         data.setdefault(key, value)
     catalogue.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
+if args.profile == 'bento':
+    for source in Path(__file__).with_name('bento').glob('*.java'):
+        (root / 'app/src/io/freemytv' / source.name).write_text(
+            source.read_text().replace('package io.freemytv;', 'package ' + PACKAGE + ';'))
+    home = root / 'app/src/io/freemytv/HomeActivity.java'
+    home.write_text(home.read_text().replace('HomeView', 'BentoView').replace(
+        'if (level >= TRIM_MEMORY_COMPLETE) Recs.get(this).trim();',
+        'if (level >= TRIM_MEMORY_COMPLETE && home != null) home.invalidate();'))
+    replace_once('SettingsActivity.java', 'if (screen == MAIN) return false;   // leaves the settings',
+                 'if (screen == MAIN) {\n'
+                 '                        if (!down && !e.isCanceled()) activity.finish();\n'
+                 '                        return true;\n'
+                 '                    }')
+    translations = json.loads(Path(__file__).with_name('bento').joinpath('translations-ru.json').read_text())
+    for catalogue in root.glob('app/assets/i18n/*.json'):
+        data = json.loads(catalogue.read_text())
+        for key, value in translations.items():
+            data.setdefault(key, value if catalogue.stem == 'ru' else key)
+        catalogue.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
 ns = 'http://schemas.android.com/apk/res/android'
 ET.register_namespace('android', ns)
 a = lambda name: '{' + ns + '}' + name
 manifest = root / 'app/AndroidManifest.xml'
 tree = ET.parse(manifest)
 m = tree.getroot()
-m.set(a('versionCode'), '4')
-m.set(a('versionName'), '1.1-haier-' + args.profile + '-preview.3')
+m.set(a('versionCode'), '5')
+m.set(a('versionName'), '1.1-haier-' + args.profile + '-preview.4')
 # Android 11+ package visibility: ask only for browser intent handlers.
 queries = m.find('queries')
 intent = ET.SubElement(queries, 'intent')

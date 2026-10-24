@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [standard, lite]
+        profile: [standard, lite, bento]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -40,6 +40,7 @@ jobs:
           echo "ANDROID_HOME=$RUNNER_TEMP/haier-sdk" >> "$GITHUB_ENV"
       - name: Prepare preview and check sources
         run: |
+          python3 kit/tools/test_bento_layout.py
           python3 kit/tools/prepare_preview.py source --profile '${{ matrix.profile }}'
           cd source
           python3 tools/translate.py --check

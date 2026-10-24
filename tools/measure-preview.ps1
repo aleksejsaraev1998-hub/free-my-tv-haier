@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory=$true)][string]$Serial,
-    [ValidateSet('stock','standard','lite')][string]$Profile = 'stock',
+    [ValidateSet('stock','standard','lite','bento')][string]$Profile = 'stock',
     [string]$AdbPath = 'C:\platform-tools\platform-tools\adb.exe',
     [string]$OutputDirectory = '.'
 )
@@ -27,7 +27,7 @@ Save-AdbOutput 'display.txt' @('shell','wm','size')
 Save-AdbOutput 'stock-memory.txt' @('shell','dumpsys','meminfo','com.google.android.tvlauncher')
 if ($Profile -ne 'stock') {
     $previewPackage = 'io.freemytv.haierpreview'
-    if ($Profile -eq 'lite') { $previewPackage += '.lite' }
+    if ($Profile -eq 'lite' -or $Profile -eq 'bento') { $previewPackage += '.' + $Profile }
     Save-AdbOutput 'preview-memory.txt' @('shell','dumpsys','meminfo',$previewPackage)
     Save-AdbOutput 'preview-frames.txt' @('shell','dumpsys','gfxinfo',$previewPackage,'framestats')
 }

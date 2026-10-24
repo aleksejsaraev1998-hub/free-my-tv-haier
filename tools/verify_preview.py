@@ -10,12 +10,12 @@ import re
 
 p = argparse.ArgumentParser()
 p.add_argument('source', type=Path)
-p.add_argument('--profile', choices=['standard', 'lite'], required=True)
+p.add_argument('--profile', choices=['standard', 'lite', 'bento'], required=True)
 p.add_argument('--output', type=Path, required=True)
 args = p.parse_args()
 root = args.source.resolve()
 args.output.mkdir(parents=True, exist_ok=True)
-package = 'io.freemytv.haierpreview' + ('.lite' if args.profile == 'lite' else '')
+package = 'io.freemytv.haierpreview' + ('.' + args.profile if args.profile != 'standard' else '')
 apk = root / 'FreeMyTV.apk'
 bt = Path(os.environ['ANDROID_HOME']) / 'build-tools/34.0.0'
 ns = '{http://schemas.android.com/apk/res/android}'
@@ -44,10 +44,19 @@ bytecode = command(javap, '-classpath', root/'out/classes', '-c', package+'.Adb'
 assert bytecode.count('athrow') == 2 and 'java/net/' not in bytecode
 assert 'Haier Preview: shell is disabled.' in bytecode
 assert 'Haier Preview: system changes are disabled.' in bytecode
-if args.profile == 'lite':
+if args.profile in ('lite', 'bento'):
     scene = command(javap, '-classpath', root/'out/classes', '-c', package+'.Scene')
     assert not re.search(r'\bnew\b[^\n]*// class android/graphics/RuntimeShader', scene), 'Lite shader constructor restored'
     (args.output/'lite-scene-bytecode.txt').write_text(scene)
+if args.profile == 'bento':
+    home = command(javap, '-classpath', root/'out/classes', '-c', package+'.HomeActivity')
+    assert 'class ' + package.replace('.','/')+'/BentoView' in home
+    assert 'class ' + package.replace('.','/')+'/HomeView' not in home
+    view = command(javap, '-classpath', root/'out/classes', '-c', package+'.BentoView')
+    draw = view.split('protected void onDraw(android.graphics.Canvas);',1)[1].split('boolean onKey(',1)[0]
+    assert not re.search(r'\b(new|anewarray|newarray)\b', draw), 'Allocation in Bento onDraw'
+    assert 'setLayerType' not in view and 'android/webkit/WebView' not in view
+    (args.output/'bento-view-bytecode.txt').write_text(view)
 for name, text in [('signature.txt', signature), ('apk-info.txt', badging),
                    ('manifest-tree.txt', binary_manifest), ('adb-bytecode.txt', bytecode)]:
     (args.output/name).write_text(text)
