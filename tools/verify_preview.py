@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""Fail the build if a preview regains system integration or a native ABI dependency."""
+import argparse
+from pathlib import Path
+import os
+import subprocess
+import xml.etree.ElementTree as ET
+import zipfile
+import re
+
+p = argparse.ArgumentParser()
+p.add_argument('source', type=Path)
+p.add_argument('--profile', choices=['standard', 'lite'], required=True)
+p.add_argument('--output', type=Path, required=True)
+args = p.parse_args()
+root = args.source.resolve()
+args.output.mkdir(parents=True, exist_ok=True)
+package = 'io.freemytv.haierpreview' + ('.lite' if args.profile == 'lite' else '')
+apk = root / 'FreeMyTV.apk'
+bt = Path(os.environ['ANDROID_HOME']) / 'build-tools/34.0.0'
+ns = '{http://schemas.android.com/apk/res/android}'
+manifest = ET.parse(root / 'app/AndroidManifest.xml').getroot()
+assert manifest.get('package') == package, 'Unexpected package'
+assert {e.get(ns+'name') for e in manifest.findall('uses-permission')} == {
+    'android.permission.INTERNET', 'android.permission.ACCESS_NETWORK_STATE'}, 'Unexpected permission'
+assert not manifest.findall('.//receiver'), 'Preview must not receive boot/update broadcasts'
+assert all(e.get(ns+'name') != 'android.intent.category.HOME' for e in manifest.findall('.//category')), 'HOME role restored'
+with zipfile.ZipFile(apk) as archive:
+    assert archive.read('classes.dex').startswith(b'dex\n'), 'Missing Dex payload'
+    assert not any(n.startswith('lib/') or n.endswith(('.so','.keystore','.properties')) for n in archive.namelist()), 'Unexpected native code or private config'
+def command(*cmd):
+    return subprocess.check_output([str(c) for c in cmd], text=True, stderr=subprocess.STDOUT)
+signature = command(bt/'apksigner', 'verify', '--verbose', '--print-certs', apk)
+badging = command(bt/'aapt', 'dump', 'badging', apk)
+binary_manifest = command(bt/'aapt', 'dump', 'xmltree', apk, 'AndroidManifest.xml')
+assert "package: name='" + package + "'" in badging
+assert "sdkVersion:'26'" in badging and "targetSdkVersion:'33'" in badging
+assert 'native-code:' not in badging
+for forbidden in ['android.intent.category.HOME', 'BOOT_COMPLETED', 'MY_PACKAGE_REPLACED']:
+    assert forbidden not in binary_manifest, 'Unsafe compiled manifest: ' + forbidden
+# Check compiled Java as well as source: each shell entry point must throw immediately.
+javap = Path(os.environ['JAVA_HOME']) / 'bin/javap'
+bytecode = command(javap, '-classpath', root/'out/classes', '-c', package+'.Adb')
+assert bytecode.count('athrow') == 2 and 'java/net/' not in bytecode
+assert 'Haier Preview: shell is disabled.' in bytecode
+assert 'Haier Preview: system changes are disabled.' in bytecode
+if args.profile == 'lite':
+    scene = command(javap, '-classpath', root/'out/classes', '-c', package+'.Scene')
+    assert not re.search(r'\bnew\b[^\n]*// class android/graphics/RuntimeShader', scene), 'Lite shader constructor restored'
+    (args.output/'lite-scene-bytecode.txt').write_text(scene)
+for name, text in [('signature.txt', signature), ('apk-info.txt', badging),
+                   ('manifest-tree.txt', binary_manifest), ('adb-bytecode.txt', bytecode)]:
+    (args.output/name).write_text(text)
+print('PASS: isolated package, permissions, no HOME/boot hooks, native independence, signature, compiled ADB guard')

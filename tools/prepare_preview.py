@@ -6,10 +6,17 @@ import sys
 import json
 import re
 import xml.etree.ElementTree as ET
+import argparse
 
 PIN = 'aa34335d25fa2224053d1bb16851e4522a6bbeb0'
-PACKAGE = 'io.freemytv.haierpreview'
-root = Path(sys.argv[1]).resolve()
+parser = argparse.ArgumentParser()
+parser.add_argument('source')
+parser.add_argument('--profile', choices=['standard', 'lite'], default='standard')
+args = parser.parse_args()
+lite = args.profile == 'lite'
+PACKAGE = 'io.freemytv.haierpreview' + ('.lite' if lite else '')
+label = 'Free My TV Haier ' + ('Lite Preview' if lite else 'Preview')
+root = Path(args.source).resolve()
 head = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
 if head != PIN:
     raise SystemExit('Unreviewed upstream revision; refusing to patch')
@@ -44,16 +51,51 @@ final class Adb implements Closeable {
     }
     @Override public void close() {}
 }
-''')
+'''.replace('io.freemytv.haierpreview', PACKAGE))
+
+def replace_once(name, before, after):
+    path = root / 'app/src/io/freemytv' / name
+    text = path.read_text()
+    if text.count(before) != 1:
+        raise SystemExit('Patch anchor changed: ' + name)
+    path.write_text(text.replace(before, after))
+
+(root / 'app/src/io/freemytv/HaierProfile.java').write_text(
+    'package ' + PACKAGE + ';\nfinal class HaierProfile {\n'
+    + '    static final boolean LITE = ' + str(lite).lower() + ';\n}\n')
+replace_once('Scene.java', '        try {\n            aurora = new RuntimeShader',
+             '        if (!HaierProfile.LITE) try {\n            aurora = new RuntimeShader')
+replace_once('HomeView.java', 'if (busy) Choreographer.getInstance().postFrameCallback(this);',
+             'if (busy) {\n'
+             '            if (HaierProfile.LITE) Choreographer.getInstance().postFrameCallbackDelayed(this, 33);\n'
+             '            else Choreographer.getInstance().postFrameCallback(this);\n'
+             '        }')
+replace_once('SettingsActivity.java',
+             'if (moving || SystemClock.uptimeMillis() - lastSky >= 100) invalidate();\n'
+             '            Choreographer.getInstance().postFrameCallback(this);',
+             'if (moving || SystemClock.uptimeMillis() - lastSky >= (HaierProfile.LITE ? 1000 : 100)) invalidate();\n'
+             '            if (HaierProfile.LITE) Choreographer.getInstance().postFrameCallbackDelayed(this, moving ? 33 : 1000);\n'
+             '            else Choreographer.getInstance().postFrameCallback(this);')
+replace_once('DreamView.java',
+             '        Choreographer.getInstance().postFrameCallback(this);\n    }\n\n    /** The clock that drives',
+             '        if (HaierProfile.LITE) Choreographer.getInstance().postFrameCallbackDelayed(this, 100);\n'
+             '        else Choreographer.getInstance().postFrameCallback(this);\n    }\n\n    /** The clock that drives')
+replace_once('Backdrop.java',
+             'return longest > 0 ? Math.min(1f, longest / 1920f) : 1f;',
+             'float limit = HaierProfile.LITE ? 2f / 3f : 1f;\n'
+             '        return longest > 0 ? Math.min(limit, longest / 1920f) : limit;')
+replace_once('HomeData.java', 'WEATHER_EVERY = 30 * 60_000L;',
+             'WEATHER_EVERY = (HaierProfile.LITE ? 60 : 30) * 60_000L;')
 ns = 'http://schemas.android.com/apk/res/android'
 ET.register_namespace('android', ns)
 a = lambda name: '{' + ns + '}' + name
 manifest = root / 'app/AndroidManifest.xml'
 tree = ET.parse(manifest)
 m = tree.getroot()
-m.set(a('versionName'), '1.1-haier-preview')
+m.set(a('versionCode'), '3')
+m.set(a('versionName'), '1.1-haier-' + args.profile + '-preview.2')
 app = m.find('application')
-app.set(a('label'), 'Free My TV Haier Preview')
+app.set(a('label'), label)
 for permission in list(m.findall('uses-permission')):
     if permission.get(a('name')) == 'android.permission.RECEIVE_BOOT_COMPLETED':
         m.remove(permission)
@@ -64,7 +106,7 @@ for activity in app.findall('activity'):
         for intent in list(activity.findall('intent-filter')):
             activity.remove(intent)
     if activity.get(a('name')) == '.HomeActivity':
-        activity.set(a('label'), 'Free My TV Haier Preview')
+        activity.set(a('label'), label)
         for intent in list(activity.findall('intent-filter')):
             activity.remove(intent)
         intent = ET.SubElement(activity, 'intent-filter')

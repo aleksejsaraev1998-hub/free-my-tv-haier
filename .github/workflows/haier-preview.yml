@@ -4,11 +4,16 @@ on:
   push:
     paths:
       - '.github/workflows/haier-preview.yml'
-      - 'tools/prepare_preview.py'
+      - 'tools/**'
 permissions:
   contents: read
 jobs:
   build:
+    name: Preview (${{ matrix.profile }})
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [standard, lite]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -35,7 +40,7 @@ jobs:
           echo "ANDROID_HOME=$RUNNER_TEMP/haier-sdk" >> "$GITHUB_ENV"
       - name: Prepare preview and check sources
         run: |
-          python3 kit/tools/prepare_preview.py source
+          python3 kit/tools/prepare_preview.py source --profile '${{ matrix.profile }}'
           cd source
           python3 tools/translate.py --check
           git diff --check
@@ -48,36 +53,22 @@ jobs:
             printf '%s' "$PREVIEW_SIGNING_KEY" | base64 --decode > freemytv.keystore
           fi
           bash build.sh
-      - name: Verify signature, SDK and ABI
-        working-directory: source
+      - name: Verify preview isolation and compiled APK
+        run: python3 kit/tools/verify_preview.py source --profile '${{ matrix.profile }}' --output deliverables
+      - name: Package verified APK
+        env:
+          PROFILE: ${{ matrix.profile }}
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p ../deliverables
-          BT="$ANDROID_HOME/build-tools/34.0.0"
-          "$BT/apksigner" verify --verbose --print-certs FreeMyTV.apk > ../deliverables/signature.txt
-          "$BT/aapt" dump badging FreeMyTV.apk > ../deliverables/apk-info.txt
-          "$BT/aapt" dump xmltree FreeMyTV.apk AndroidManifest.xml > ../deliverables/manifest-tree.txt
-          if grep -E 'android.intent.category.HOME|BOOT_COMPLETED|MY_PACKAGE_REPLACED' ../deliverables/manifest-tree.txt; then
-            echo 'Unexpected system integration in preview'; exit 1
-          fi
-          grep -q "package: name='io.freemytv.haierpreview'" ../deliverables/apk-info.txt
-          grep -q "sdkVersion:'26'" ../deliverables/apk-info.txt
-          grep -q "targetSdkVersion:'33'" ../deliverables/apk-info.txt
-          python3 - <<'PY'
-          import zipfile
-          with zipfile.ZipFile('FreeMyTV.apk') as apk:
-              assert 'classes.dex' in apk.namelist()
-              assert not any(n.startswith('lib/') or n.endswith('.so') for n in apk.namelist()), 'Unexpected native ABI dependency'
-          PY
-          cp FreeMyTV.apk ../deliverables/FreeMyTV-Haier-Preview-universal.apk
-          cd ../deliverables
+          cp source/FreeMyTV.apk "deliverables/FreeMyTV-Haier-$PROFILE-Preview-universal.apk"
+          cd deliverables
           sha256sum *.apk > SHA256SUMS.txt
-          echo 'Universal Java/Dex APK: compatible with armeabi-v7a; device runtime test pending.' > COMPATIBILITY.txt
-          echo 'Set optional HAIER_PREVIEW_KEYSTORE_BASE64 to retain the preview signing identity. Without it each CI run uses a disposable key; reinstalling requires removal of only the preview app and loses its settings.' >> COMPATIBILITY.txt
+          echo "Profile: $PROFILE; universal Java/Dex, minSdk 26, targetSdk 33; TV runtime test pending." > COMPATIBILITY.txt
+          echo 'Optional HAIER_PREVIEW_KEYSTORE_BASE64 retains signing identity; otherwise each CI run uses a disposable key.' >> COMPATIBILITY.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: FreeMyTV-Haier-Preview-universal
+          name: FreeMyTV-Haier-${{ matrix.profile }}-Preview-universal
           path: deliverables/
           retention-days: 30
           if-no-files-found: error
