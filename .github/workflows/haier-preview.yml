@@ -41,6 +41,7 @@ jobs:
       - name: Prepare preview and check sources
         run: |
           python3 kit/tools/test_bento_layout.py
+          python3 kit/tools/test_calendar.py
           python3 kit/tools/prepare_preview.py source --profile '${{ matrix.profile }}'
           cd source
           python3 tools/translate.py --check

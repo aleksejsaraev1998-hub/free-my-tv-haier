@@ -6,7 +6,7 @@ The build reads upstream [simbasjungles/free-my-tv](https://github.com/simbasjun
 
 ## Bento Preview
 
-The approved night Bento layout is implemented as a third, separate **bento** profile: `io.freemytv.haierpreview.bento`. It installs alongside Lite for rollback and keeps system HOME untouched. See [Bento features, installation limits and tests](docs/bento-preview.md). It includes local persistent tasks/thought, MET Norway weather, exchange rates, browser/VPN shortcuts and shelf selection. LAN board sync is not enabled.
+The approved night Bento layout is implemented as a third, separate **bento** profile: `io.freemytv.haierpreview.bento`. It installs alongside Lite for rollback and keeps system HOME untouched. See [Bento features, installation limits and tests](docs/bento-preview.md). It includes a read-only CalDAV calendar agenda with on-TV credential entry and Keystore-encrypted credentials/cache, a local persistent thought, MET Norway weather, exchange rates, browser/VPN shortcuts and shelf selection. Local tasks have been replaced by the calendar panel. LAN board sync is not enabled.
 
 ## Features and comparison
 

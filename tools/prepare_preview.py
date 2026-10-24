@@ -154,8 +154,8 @@ a = lambda name: '{' + ns + '}' + name
 manifest = root / 'app/AndroidManifest.xml'
 tree = ET.parse(manifest)
 m = tree.getroot()
-m.set(a('versionCode'), '5')
-m.set(a('versionName'), '1.1-haier-' + args.profile + '-preview.4')
+m.set(a('versionCode'), '6')
+m.set(a('versionName'), '1.1-haier-' + args.profile + '-preview.5')
 # Android 11+ package visibility: ask only for browser intent handlers.
 queries = m.find('queries')
 intent = ET.SubElement(queries, 'intent')

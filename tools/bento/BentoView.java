@@ -26,6 +26,11 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.Toast;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.view.WindowManager;
+import android.text.InputType;
+import java.time.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.text.SimpleDateFormat;
@@ -40,7 +45,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /** A single, quiet Canvas. All text layout, package queries and bitmap scaling happen outside onDraw. */
-final class BentoView extends View implements BentoData.Listener {
+final class BentoView extends View implements BentoData.Listener, CalendarFeed.Listener {
     private static final int BG=0xFF101114, TILE=0xFF1E2026, EDGE=0xFF2C2F37, FOCUSED=0xFF262931;
     private static final int TEXT=0xFF8F8B84, MUTED=0xFF67645F, DIM=0xFF4A4845, UP=0xFF5E8466, DOWN=0xFF9C6660;
     private final Activity activity;
@@ -60,6 +65,7 @@ final class BentoView extends View implements BentoData.Listener {
     private final List<TaskLine> lines = new ArrayList<>();
     private final SharedPreferences board;
     private final BentoData data;
+    private final CalendarFeed calendar;
     private AlertDialog dialog;
     private ValueAnimator animator;
     private boolean running, destroyed, loading;
@@ -68,14 +74,16 @@ final class BentoView extends View implements BentoData.Listener {
     private long minute=-1;
     private String date1="",date2="",hours="",minutes="",boardFooter="",weatherRange="",rateFooter="",city="";
     private int hourLeft,hourTop,minuteLeft,minuteTop;
-    private StaticLayout emptyBoard, quote;
-    private final String[] headings = {"", "", Ui.tr("Today"), Ui.tr("Live TV"), Ui.tr("HDMI Inputs"), Ui.tr("Settings"), Ui.tr("Exchange rates · RUB"), Ui.tr("Thought of the week")};
+    private StaticLayout emptyBoard, quote, calendarFooter;
+    private final String[] headings = {"", "", Ui.tr("Calendar"), Ui.tr("Live TV"), Ui.tr("HDMI Inputs"), Ui.tr("Settings"), Ui.tr("Exchange rates · RUB"), Ui.tr("Thought of the week")};
     private final String[] symbols = {"","","","live_tv","hdmi","settings","",""};
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             if (!running) return;
             updateClock();
             data.refresh();
+            calendar.refresh(false);
+            rebuildBoard();
             handler.postDelayed(this,60000-System.currentTimeMillis()%60000);
         }
     };
@@ -83,13 +91,14 @@ final class BentoView extends View implements BentoData.Listener {
         String label,pkg; int kind; Bitmap image; float dim=.65f; RectF rect=new RectF(); StaticLayout text;
     }
     private static final class TaskLine {
-        StaticLayout layout; String time; boolean done,urgent; float x,y; int width;
+        StaticLayout layout,caption; float x,y;
     }
 
     BentoView(Activity a) {
         super(a); activity=a;
         board=a.getSharedPreferences("bento-board",0);
         data=new BentoData(a);
+        calendar=new CalendarFeed(a);
         for(int i=0;i<tiles.length;i++) {float[] r=BentoLayout.TILES[i];tiles[i]=new RectF(r[0],r[1],r[2],r[3]);}
         border.setStyle(Paint.Style.STROKE);
         doneText.setStrikeThruText(true);
@@ -107,16 +116,16 @@ final class BentoView extends View implements BentoData.Listener {
                 .setEllipsize(TextUtils.TruncateAt.END).build();
     }
     void resume() {
-        running=true;data.listen(this);data.refresh();updateClock();
+        running=true;data.listen(this);calendar.listen(this);calendar.refresh(false);data.refresh();updateClock();rebuildBoard();
         handler.removeCallbacks(tick);handler.post(tick);
         if (loadedVersion!=Prefs.version) loadApps();
     }
     void pause() {
-        running=false;handler.removeCallbacks(tick);data.listen(null);
+        running=false;handler.removeCallbacks(tick);data.listen(null);calendar.listen(null);
         if(animator!=null) animator.cancel();
         if(dialog!=null) {dialog.dismiss();dialog=null;}
     }
-    void destroy() {pause();destroyed=true;data.close();loader.shutdownNow();}
+    void destroy() {pause();destroyed=true;data.close();calendar.close();loader.shutdownNow();}
     void reset(boolean animate) { focus=2;animateFocus(); }
     @Override public void changed() {
         city=Prefs.city().isEmpty()?Ui.tr("Weather"):Prefs.city();
@@ -210,11 +219,10 @@ final class BentoView extends View implements BentoData.Listener {
             if(lines.isEmpty()) drawLayout(c,emptyBoard,r.left+40,170);
             else for(int index=0;index<lines.size();index++) {
                 TaskLine line=lines.get(index);
-                c.drawText(line.time,line.x,line.y+28,timeText);
-                drawLayout(c,line.layout,line.x+100,line.y);
-                if(line.urgent) {fill.setColor(DOWN);c.drawCircle(line.x+line.width-5,line.y+17,4,fill);}
+                drawLayout(c,line.caption,line.x,line.y);
+                drawLayout(c,line.layout,line.x,line.y+38);
             }
-            c.drawText(boardFooter,r.left+40,774,label);
+            drawLayout(c,calendarFooter,r.left+40,708);
         } else if(id>=3&&id<=5) {
             // Draw icons at logical size, prewarmed for the physical UI scale.
             Symbols.draw(getContext(),c,symbols[id],r.centerX(),r.centerY()-26,48,TEXT);
@@ -305,7 +313,7 @@ final class BentoView extends View implements BentoData.Listener {
     private void activate() {
         if(focus==0)return;
         if(focus==1||focus==6){data.refresh();message(Ui.tr("Online data refresh requested"));return;}
-        if(focus==2){editTasks();return;}
+        if(focus==2){calendarMenu();return;}
         if(focus==3){open(HomeApps.action(HomeApps.LIVE_TV,"live",headings[3],"live_tv"));return;}
         if(focus==4){showInputs();return;}
         if(focus==5){settings();return;}
@@ -317,11 +325,12 @@ final class BentoView extends View implements BentoData.Listener {
         else showAllApps();
     }
     private void settings() {
-        dialog=new AlertDialog.Builder(activity).setTitle(Ui.tr("Settings")).setItems(new String[]{Ui.tr("Shelf"),Ui.tr("Home Settings"),Ui.tr("TV Settings"),Ui.tr("Data sources")},(d,index)->{
-            if(index==0)editShelf();
-            else if(index==1)activity.startActivity(new Intent(activity,SettingsActivity.class));
-            else if(index==2)activity.startActivity(new Intent(Settings.ACTION_SETTINGS));
-            else dialog=new AlertDialog.Builder(activity).setTitle(Ui.tr("Data sources"))
+        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Settings")).setItems(new String[]{Ui.tr("Calendar"),Ui.tr("Shelf"),Ui.tr("Home Settings"),Ui.tr("TV Settings"),Ui.tr("Data sources")},(d,index)->{
+            if(index==0)calendarSettings();
+            else if(index==1)editShelf();
+            else if(index==2)activity.startActivity(new Intent(activity,SettingsActivity.class));
+            else if(index==3)activity.startActivity(new Intent(Settings.ACTION_SETTINGS));
+            else dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Data sources"))
                     .setMessage("MET Norway · CC BY 4.0\nhttps://api.met.no\n\nCBR: https://www.cbr-xml-daily.ru\nhttps://www.cbr.ru")
                     .setPositiveButton(Ui.tr("Close"),null).show();
         }).show();
@@ -330,11 +339,11 @@ final class BentoView extends View implements BentoData.Listener {
         List<HomeApps.Item> hdmi=new ArrayList<>();for(HomeApps.Item i:inputs)if(i.kind==HomeApps.INPUT)hdmi.add(i);
         if(hdmi.isEmpty()){message(Ui.tr("No HDMI inputs found"));return;}
         String[] labels=new String[hdmi.size()];for(int i=0;i<labels.length;i++)labels[i]=hdmi.get(i).label;
-        dialog=new AlertDialog.Builder(activity).setTitle(Ui.tr("HDMI Inputs")).setItems(labels,(d,n)->open(hdmi.get(n))).show();
+        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("HDMI Inputs")).setItems(labels,(d,n)->open(hdmi.get(n))).show();
     }
     private void showAllApps() {
         String[] labels=new String[candidates.size()];for(int i=0;i<labels.length;i++)labels[i]=candidates.get(i)[1];
-        dialog=new AlertDialog.Builder(activity).setTitle(Ui.tr("All Apps")).setItems(labels,(d,n)->open(HomeApps.app(candidates.get(n)[0],labels[n]))).show();
+        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("All Apps")).setItems(labels,(d,n)->open(HomeApps.app(candidates.get(n)[0],labels[n]))).show();
     }
     private void openVpn() {
         List<String[]> choices=new ArrayList<>();
@@ -342,72 +351,104 @@ final class BentoView extends View implements BentoData.Listener {
             if(HomeApps.launchIntent(activity.getPackageManager(),pkg)!=null)choices.add(new String[]{pkg,pkg.equals("com.happproxy")?"Happ":"v2RayTun"});
         if(choices.isEmpty()){message(Ui.tr("VPN app is not installed"));return;}
         if(choices.size()==1){open(HomeApps.app(choices.get(0)[0],choices.get(0)[1]));return;}
-        dialog=new AlertDialog.Builder(activity).setTitle("VPN").setItems(new String[]{"Happ","v2RayTun"},(d,n)->open(HomeApps.app(choices.get(n)[0],choices.get(n)[1]))).show();
+        dialog=new NightDialogs.Builder(activity).setTitle("VPN").setItems(new String[]{"Happ","v2RayTun"},(d,n)->open(HomeApps.app(choices.get(n)[0],choices.get(n)[1]))).show();
     }
     private void editShelf() {
         List<String> saved=Prefs.shelf();if(saved==null)saved=HomeApps.shelfPackages(activity);
         List<String> selection=new ArrayList<>(saved);boolean[] checked=new boolean[candidates.size()];String[] names=new String[checked.length];
         for(int i=0;i<checked.length;i++){names[i]=candidates.get(i)[1];checked[i]=selection.contains(candidates.get(i)[0]);}
-        dialog=new AlertDialog.Builder(activity).setTitle(Ui.tr("Choose up to four apps"))
+        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Choose up to four apps"))
                 .setMultiChoiceItems(names,checked,(d,index,on)->{
                     String pkg=candidates.get(index)[0];
                     if(on&&selection.size()>=4){((AlertDialog)d).getListView().setItemChecked(index,false);message(Ui.tr("Choose up to four apps"));}
                     else if(on)selection.add(pkg);else selection.remove(pkg);
                 }).setPositiveButton(Ui.tr("Save"),(d,n)->{Prefs.setShelf(selection);loadApps();}).setNegativeButton(Ui.tr("Cancel"),null).show();
     }
-    private JSONArray tasks() {try{return new JSONArray(board.getString("tasks","[]"));}catch(Exception e){return new JSONArray();}}
+    @Override public void calendarChanged() {if(!destroyed)rebuildBoard();}
+    private List<CalendarProtocol.Event> upcoming() {
+        long now=System.currentTimeMillis();List<CalendarProtocol.Event> result=new ArrayList<>();
+        for(CalendarProtocol.Event e:calendar.events)if(e.end>now||e.start>=now)result.add(e);
+        return result;
+    }
+    private String eventCaption(CalendarProtocol.Event e) {
+        ZoneId zone=ZoneId.systemDefault();LocalDate day=Instant.ofEpochMilli(e.start).atZone(zone).toLocalDate(),today=LocalDate.now(zone);
+        String date=day.equals(today)?Ui.tr("Today"):day.equals(today.plusDays(1))?Ui.tr("Tomorrow"):new SimpleDateFormat("EEE, d MMM",Ui.locale()).format(new Date(e.start));
+        if(e.allDay)return date+" · "+Ui.tr("All day");
+        String time=new SimpleDateFormat("HH:mm",Ui.locale()).format(new Date(e.start))+"–"+new SimpleDateFormat("HH:mm",Ui.locale()).format(new Date(e.end));
+        long now=System.currentTimeMillis();return (e.start<=now&&e.end>now?Ui.tr("Now"):date)+" · "+time;
+    }
     private void rebuildBoard() {
-        lines.clear();JSONArray tasks=tasks();List<JSONObject> ordered=new ArrayList<>();
-        for(int i=0;i<tasks.length();i++)if(tasks.optJSONObject(i)!=null)ordered.add(tasks.optJSONObject(i));
-        Collections.sort(ordered,Comparator.comparing(t->t.optBoolean("done")));
-        int columns=ordered.size()>8?2:1,width=columns==1?664:320;
-        int visible=Math.min(ordered.size(),columns*8);
-        // Fit a balanced prefix. Completed tasks are sorted last and disappear first.
-        while(true) {
-            lines.clear();int perColumn=(visible+columns-1)/columns;boolean fits=true;
-            for(int col=0;col<columns;col++) {
-                float y=158;
-                for(int i=col*perColumn;i<Math.min(visible,(col+1)*perColumn);i++) {
-                    JSONObject item=ordered.get(i);TaskLine line=new TaskLine();line.done=item.optBoolean("done");line.urgent=item.optBoolean("urgent");
-                    line.time=item.optString("time");line.width=width;line.x=484+col*344;line.y=y;
-                    line.layout=layout(item.optString("text"),line.done?doneText:body,width-124,2);
-                    float height=Math.max(46,line.layout.getHeight())+18;
-                    if(y+height>714){fits=false;break;}lines.add(line);y+=height;
-                }
-            }
-            if(fits||visible==0)break;
-            visible--;
+        lines.clear();List<CalendarProtocol.Event> agenda=upcoming();float y=156;
+        for(CalendarProtocol.Event event:agenda) {
+            TaskLine line=new TaskLine();line.x=484;line.y=y;
+            line.caption=layout(eventCaption(event),label,664,1);
+            line.layout=layout(event.title.isEmpty()?Ui.tr("Busy"):event.title,body,664,2);
+            float height=38+line.layout.getHeight()+24;if(y+height>698)break;
+            lines.add(line);y+=height;
         }
-        hiddenTasks=ordered.size()-visible;
-        String updated=board.getLong("updated",0)==0?Ui.tr("OK to add a task"):Ui.tr("Updated")+" "+new SimpleDateFormat("HH:mm",Ui.locale()).format(new Date(board.getLong("updated",0)));
-        boardFooter=(hiddenTasks>0?Ui.tr("More")+" "+hiddenTasks+" · ":"")+updated;
-        emptyBoard=layout(Ui.tr("No tasks yet"),body,664,2);
+        String empty=!calendar.configured?Ui.tr("Connect your calendar in Settings"):
+                calendar.updated==0?Ui.tr("Waiting for calendar data"):Ui.tr("No upcoming events in the loaded period");
+        emptyBoard=layout(empty,body,664,4);
+        String footer=calendar.updated==0?"":Ui.tr("Updated")+" "+new SimpleDateFormat("dd.MM HH:mm",Ui.locale()).format(new Date(calendar.updated));
+        if(calendar.failed||calendar.windowEnd>0&&System.currentTimeMillis()>=calendar.windowEnd)footer=Ui.tr("Cached")+(footer.isEmpty()?"":" · "+footer);
+        if(!calendar.status.isEmpty())footer=CalendarStrings.translate(calendar.status)+(footer.isEmpty()?"":" · "+footer);
+        else if(!calendar.configured)footer=Ui.tr("OK to connect calendar");
+        else if(agenda.size()>lines.size())footer=Ui.tr("More")+" "+(agenda.size()-lines.size())+" · "+footer;
+        calendarFooter=layout(footer,label,664,2);
         String value=board.getString("quote","");quote=layout(value.isEmpty()?Ui.tr("OK to set a thought"):value,body,264,3);
         invalidate();
     }
-    private void saveTasks(JSONArray tasks) {board.edit().putString("tasks",tasks.toString()).putLong("updated",System.currentTimeMillis()).apply();rebuildBoard();}
-    private void editTasks() {
-        JSONArray tasks=tasks();String[] names=new String[tasks.length()];
-        for(int i=0;i<names.length;i++){JSONObject t=tasks.optJSONObject(i);names[i]=(t.optBoolean("done")?"✓ ":"")+t.optString("time")+" "+t.optString("text");}
-        dialog=new AlertDialog.Builder(activity).setTitle(Ui.tr("Today"))
-                .setItems(names,(d,index)->{try{JSONObject task=tasks.getJSONObject(index);task.put("done",!task.optBoolean("done"));saveTasks(tasks);}catch(Exception ignored){}})
-                .setPositiveButton(Ui.tr("Add task"),(d,n)->addTask()).setNeutralButton(Ui.tr("Clear completed"),(d,n)->{
-                    JSONArray kept=new JSONArray();for(int i=0;i<tasks.length();i++)if(!tasks.optJSONObject(i).optBoolean("done"))kept.put(tasks.optJSONObject(i));saveTasks(kept);
-                }).setNegativeButton(Ui.tr("Close"),null).show();
+    private void calendarMenu() {
+        if(!calendar.configured){calendarSettings();return;}
+        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Calendar"))
+            .setItems(new String[]{Ui.tr("Next seven days"),Ui.tr("Refresh calendar"),Ui.tr("Calendar settings")},(d,index)->{
+                if(index==0)calendarEvents();else if(index==1){calendar.refresh(true);}else calendarSettings();
+            }).show();
     }
-    private void addTask() {
-        EditText input=new EditText(activity);input.setTextColor(TEXT);input.setHint(Ui.tr("Optional time: 18:30 Task"));input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(300)});
-        dialog=new AlertDialog.Builder(activity).setTitle(Ui.tr("Add task")).setView(input).setPositiveButton(Ui.tr("Save"),(d,n)->{
-            String text=input.getText().toString().trim();if(text.isEmpty())return;
-            JSONArray list=tasks();if(list.length()>=100){message(Ui.tr("Task limit reached"));return;}
-            boolean urgent=text.startsWith("!");if(urgent)text=text.substring(1).trim();
-            String time="";if(text.matches("^(?:[01][0-9]|2[0-3]):[0-5][0-9] .+")){time=text.substring(0,5);text=text.substring(6);}
-            try{JSONObject task=new JSONObject();task.put("text",text);task.put("time",time);task.put("urgent",urgent);task.put("done",false);list.put(task);saveTasks(list);}catch(Exception ignored){}
-        }).setNegativeButton(Ui.tr("Cancel"),null).show();
+    private void calendarEvents() {
+        List<CalendarProtocol.Event> events=upcoming();
+        if(events.isEmpty()){dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Calendar")).setMessage(Ui.tr("No upcoming events in the loaded period")).setPositiveButton(Ui.tr("Close"),null).show();return;}
+        String[] names=new String[events.size()];
+        for(int i=0;i<names.length;i++){CalendarProtocol.Event e=events.get(i);names[i]=eventCaption(e)+"\n"+(e.title.isEmpty()?Ui.tr("Busy"):e.title);}
+        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Next seven days")).setItems(names,(d,n)->{
+            CalendarProtocol.Event e=events.get(n);dialog=new NightDialogs.Builder(activity).setTitle(e.title.isEmpty()?Ui.tr("Busy"):e.title).setMessage(eventCaption(e)).setPositiveButton(Ui.tr("Close"),null).show();
+        }).setNegativeButton(Ui.tr("Close"),null).show();
+    }
+    private EditText calendarField(LinearLayout form,String hint,String value,int type) {
+        EditText input=new EditText(activity);input.setSingleLine(true);input.setHint(hint);input.setText(value);input.setInputType(type);
+        input.setSaveEnabled(false);input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(2048)});
+        form.addView(input,new LinearLayout.LayoutParams(-1,-2));return input;
+    }
+    private void calendarSettings() {
+        if(!calendar.ready||calendar.isBusy()){message(Ui.tr("Calendar is busy; try again shortly"));return;}
+        LinearLayout form=new LinearLayout(activity);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(24,12,24,12);
+        form.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
+        EditText address=calendarField(form,Ui.tr("CalDAV URL ({login} uses your login)"),calendar.url,InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);
+        EditText login=calendarField(form,Ui.tr("Calendar login"),calendar.user,InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        EditText secret=calendarField(form,calendar.hasPassword()?Ui.tr("Password (blank keeps saved password)"):Ui.tr("Calendar password"),"",InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        ScrollView scroll=new ScrollView(activity);scroll.addView(form);
+        AlertDialog.Builder builder=new NightDialogs.Builder(activity).setTitle(Ui.tr("Calendar settings")).setView(scroll)
+            .setPositiveButton(Ui.tr("Save"),null).setNegativeButton(Ui.tr("Cancel"),null);
+        if(calendar.configured)builder.setNeutralButton(Ui.tr("Disconnect calendar"),(d,n)->{
+            dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Disconnect calendar"))
+                .setMessage(Ui.tr("Remove saved login and cached events from this TV?"))
+                .setPositiveButton(Ui.tr("Disconnect calendar"),(x,y)->calendar.disconnect()).setNegativeButton(Ui.tr("Cancel"),null).show();
+        });
+        dialog=builder.create();dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);dialog.show();
+        final AlertDialog editor=dialog;
+        editor.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            String user=login.getText().toString().trim(),password=secret.getText().toString();
+            String encoded=android.net.Uri.encode(user);String url=address.getText().toString().trim().replace("{login}",encoded);
+            try {
+                CalendarProtocol.endpoint(url);
+                if(user.isEmpty()||user.contains(":")||password.isEmpty()&&(!calendar.hasPassword()||(!user.equals(calendar.user)||!url.equals(calendar.url))))throw new Exception();
+            }catch(Exception e){message(Ui.tr("Check HTTPS URL, login and password"));return;}
+            calendar.save(url,user,password);secret.setText("");editor.dismiss();
+        });
     }
     private void editQuote() {
         EditText input=new EditText(activity);input.setText(board.getString("quote",""));input.setFilters(new InputFilter[]{new InputFilter.LengthFilter(400)});
-        dialog=new AlertDialog.Builder(activity).setTitle(Ui.tr("Thought of the week")).setView(input)
+        dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Thought of the week")).setView(input)
                 .setPositiveButton(Ui.tr("Save"),(d,n)->{board.edit().putString("quote",input.getText().toString().trim()).apply();rebuildBoard();})
                 .setNegativeButton(Ui.tr("Cancel"),null).show();
     }
