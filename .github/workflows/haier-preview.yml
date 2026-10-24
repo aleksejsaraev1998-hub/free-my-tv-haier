@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/haier-preview.yml'
       - 'tools/**'
+      - '!tools/*.ps1'
 permissions:
   contents: read
 jobs:

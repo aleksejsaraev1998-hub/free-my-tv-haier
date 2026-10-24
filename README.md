@@ -8,6 +8,10 @@ The build reads upstream [simbasjungles/free-my-tv](https://github.com/simbasjun
 
 The approved night Bento layout is implemented as a third, separate **bento** profile: `io.freemytv.haierpreview.bento`. It installs alongside Lite for rollback and keeps system HOME untouched. See [Bento features, installation limits and tests](docs/bento-preview.md). It includes an iPhone-inspired month grid and selected-day agenda, multiple read-only CalDAV/ICS calendars with server discovery, on-TV credential entry and Keystore-encrypted state/cache, four quick-launch apps, MET Norway weather, exchange rates, browser/VPN shortcuts and shelf selection. Local tasks and the weekly thought have been replaced. LAN board sync is not enabled.
 
+## Optional Google voice/media cleanup
+
+A separate [reversible PowerShell tool](docs/google-cleanup-ru.md) can disable an explicit allowlist of optional Google voice/media apps over the owner's existing ADB connection. It defaults to inspection, saves a rollback journal before mutations, preserves the store/core services/HOME/input stack, and never uninstalls packages. Bento itself remains isolated.
+
 ## Features and comparison
 
 See [the Russian feature comparison and TV test plan](docs/features-ru.md). Standard and Lite are separate app packages and can be installed side by side. Lite disables AGSL effects, caps image sizes and reduces animation/update rates; device performance remains unmeasured.
