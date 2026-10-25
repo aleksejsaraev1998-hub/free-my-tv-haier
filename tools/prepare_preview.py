@@ -11,11 +11,12 @@ import argparse
 PIN = 'aa34335d25fa2224053d1bb16851e4522a6bbeb0'
 parser = argparse.ArgumentParser()
 parser.add_argument('source')
-parser.add_argument('--profile', choices=['standard', 'lite', 'bento'], default='standard')
+parser.add_argument('--profile', choices=['standard', 'lite', 'bento', 'bento-home'], default='standard')
 args = parser.parse_args()
-lite = args.profile in ('lite', 'bento')
-PACKAGE = 'io.freemytv.haierpreview' + ('.' + args.profile if args.profile != 'standard' else '')
-label = 'Free My TV Haier ' + ('Bento Preview' if args.profile == 'bento' else 'Lite Preview' if lite else 'Preview')
+lite = args.profile in ('lite', 'bento', 'bento-home')
+home_variant = args.profile == 'bento-home'
+PACKAGE = 'io.freemytv.haierpreview.home' if home_variant else 'io.freemytv.haierpreview' + ('.' + args.profile if args.profile != 'standard' else '')
+label = 'Free My TV Haier ' + ('Bento HOME Test' if home_variant else 'Bento Preview' if args.profile == 'bento' else 'Lite Preview' if lite else 'Preview')
 root = Path(args.source).resolve()
 head = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
 if head != PIN:
@@ -129,7 +130,7 @@ for catalogue in root.glob('app/assets/i18n/*.json'):
     for key, value in additions.items():
         data.setdefault(key, value)
     catalogue.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
-if args.profile == 'bento':
+if args.profile in ('bento', 'bento-home'):
     from calendar_deps import install
     install(root)
     build = root / 'build.sh'
@@ -192,6 +193,11 @@ for activity in app.findall('activity'):
         ET.SubElement(intent, 'action', {a('name'): 'android.intent.action.MAIN'})
         for category in ['LEANBACK_LAUNCHER', 'LAUNCHER']:
             ET.SubElement(intent, 'category', {a('name'): 'android.intent.category.' + category})
+        if home_variant:
+            home_intent = ET.SubElement(activity, 'intent-filter')
+            ET.SubElement(home_intent, 'action', {a('name'): 'android.intent.action.MAIN'})
+            for category in ['HOME', 'DEFAULT']:
+                ET.SubElement(home_intent, 'category', {a('name'): 'android.intent.category.' + category})
 tree.write(manifest, encoding='utf-8', xml_declaration=True)
 manifest.write_text('\n'.join(line.rstrip() for line in manifest.read_text().splitlines()) + '\n')
 (root / 'config.properties').write_text('''tmdb_key=
@@ -207,7 +213,7 @@ temperature=C
 disable_assistant=false
 ''')
 assert m.get('package') == PACKAGE
-assert not m.findall('.//category[@' + a('name') + '="android.intent.category.HOME"]')
+assert home_variant == bool(m.findall('.//category[@' + a('name') + '="android.intent.category.HOME"]'))
 assert not app.findall('receiver')
 assert 'Socket' not in (root / 'app/src/io/freemytv/Adb.java').read_text()
-print('Prepared isolated preview: no HOME role, boot receiver or ADB transport')
+print('Prepared safe HOME test variant' if home_variant else 'Prepared isolated preview: no HOME role, boot receiver or ADB transport')
