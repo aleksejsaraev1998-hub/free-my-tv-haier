@@ -151,7 +151,7 @@ final class CalendarRecurrence {
         if(p==null)throw failure("Calendar event has no start time");
         if(p.value.endsWith("Z"))return ZoneOffset.UTC;
         for(String param:p.key.split(";"))if(param.toUpperCase(Locale.ROOT).startsWith("TZID="))try{return CalendarProtocol.zoneId(param.substring(5).replace("\"",""));}catch(Exception e){throw failure("Unsupported calendar time zone");}
-        return ZoneId.systemDefault();
+        return ZoneId.of("Asia/Yekaterinburg");
     }
     private static String zoneParameter(Property p){for(String param:p.key.split(";"))if(param.toUpperCase(Locale.ROOT).startsWith("TZID="))return ";"+param;return "";}
     private static DateTime dateTime(Property p) throws Exception {
