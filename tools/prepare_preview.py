@@ -191,8 +191,13 @@ for activity in app.findall('activity'):
             activity.remove(intent)
         intent = ET.SubElement(activity, 'intent-filter')
         ET.SubElement(intent, 'action', {a('name'): 'android.intent.action.MAIN'})
-        for category in (['LEANBACK_LAUNCHER', 'LAUNCHER', 'HOME'] if home_variant else ['LEANBACK_LAUNCHER', 'LAUNCHER']):
+        for category in ['LEANBACK_LAUNCHER', 'LAUNCHER']:
             ET.SubElement(intent, 'category', {a('name'): 'android.intent.category.' + category})
+        if home_variant:
+            home_intent = ET.SubElement(activity, 'intent-filter')
+            ET.SubElement(home_intent, 'action', {a('name'): 'android.intent.action.MAIN'})
+            for category in ['HOME', 'DEFAULT']:
+                ET.SubElement(home_intent, 'category', {a('name'): 'android.intent.category.' + category})
 tree.write(manifest, encoding='utf-8', xml_declaration=True)
 manifest.write_text('\n'.join(line.rstrip() for line in manifest.read_text().splitlines()) + '\n')
 (root / 'config.properties').write_text('''tmdb_key=
