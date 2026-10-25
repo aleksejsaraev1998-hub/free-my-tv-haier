@@ -104,7 +104,7 @@ final class CalendarFeed {
             if(attempt==0||now<attempt||now-attempt>=delay)needed=true;
         }
         if(!needed)return;
-        busy=true;status="Updating calendar";notifyChanged();final int version=generation;final YearMonth requested=month;final long[] range=CalendarMonth.window(month,ZoneId.systemDefault());
+        busy=true;status="Updating calendar";notifyChanged();final int version=generation;final YearMonth requested=month;final long[] range=CalendarMonth.window(month,ZoneId.of("Asia/Yekaterinburg"));
         worker.execute(()->{
             for(Source s:next)if(s.enabled) {
                 long at=System.currentTimeMillis(),attempt=s.attempts.containsKey(key)?s.attempts.get(key):0;Cache old=s.months.get(key);
