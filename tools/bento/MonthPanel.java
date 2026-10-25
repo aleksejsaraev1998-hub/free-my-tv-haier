@@ -28,7 +28,7 @@ final class MonthPanel {
     private static StaticLayout layout(String s,TextPaint paint,int width,int lines){return StaticLayout.Builder.obtain(s,0,s.length(),paint,width).setIncludePad(false).setMaxLines(lines).setEllipsize(TextUtils.TruncateAt.END).build();}
     void select(LocalDate date){selected=date;month=YearMonth.from(date);}
     void update(java.util.List<CalendarProtocol.Event> events,String noEvents) {
-        rowCount=CalendarMonth.rows(month);rowHeight=300f/rowCount;today=LocalDate.now().toEpochDay();first=CalendarMonth.first(month);ZoneId zone=ZoneId.systemDefault();
+        rowCount=CalendarMonth.rows(month);rowHeight=300f/rowCount;today=LocalDate.now().toEpochDay();first=CalendarMonth.first(month);ZoneId zone=ZoneId.of("Asia/Yekaterinburg");
         if(previous!=events||!month.equals(indexed)) {
             previous=events;indexed=month;days.clear();
             for(int i=0;i<42;i++){LocalDate d=first.plusDays(i);days.add(CalendarMonth.day(events,d,zone));numbers[i]=Integer.toString(d.getDayOfMonth());inside[i]=YearMonth.from(d).equals(month);markCount[i]=0;
@@ -45,7 +45,7 @@ final class MonthPanel {
         visible=rows.size();empty=noEvents;emptyText=layout(empty,eventPaint,664,3);
     }
     java.util.List<CalendarProtocol.Event> events(){int i=(int)(selected.toEpochDay()-first.toEpochDay());return i>=0&&i<days.size()?days.get(i):Collections.emptyList();}
-    private static String formatTime(long time){return java.time.format.DateTimeFormatter.ofPattern("HH:mm",Ui.locale()).format(Instant.ofEpochMilli(time).atZone(ZoneId.systemDefault()));}
+    private static String formatTime(long time){return java.time.format.DateTimeFormatter.ofPattern("HH:mm",Ui.locale()).format(Instant.ofEpochMilli(time).atZone(ZoneId.of("Asia/Yekaterinburg")));}
     void draw(Canvas c,boolean active) {
         c.drawText(heading,LEFT,108,title);
         small.setTextAlign(Paint.Align.CENTER);c.drawText("‹",968,107,title);c.drawText(Ui.tr("Today"),1047,106,small);c.drawText("›",1124,107,title);

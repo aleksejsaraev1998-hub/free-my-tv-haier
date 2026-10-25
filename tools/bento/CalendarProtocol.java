@@ -168,7 +168,7 @@ final class CalendarProtocol {
     }
     static int colon(String row) {boolean quoted=false;for(int i=0;i<row.length();i++){char c=row.charAt(i);if(c=='"')quoted=!quoted;if(c==':'&&!quoted)return i;}return -1;}
     static long date(String value,String property) throws Exception {
-        ZoneId zone=ZoneId.systemDefault();
+        ZoneId zone=ZoneId.of("Asia/Yekaterinburg");
         for(String param:property.split(";"))if(param.startsWith("TZID=")){String id=param.substring(5).replace("\"","");try{zone=zoneId(id);}catch(Exception e){throw new Failure("Unsupported calendar time zone");}}
         if(value.length()==8)return LocalDate.parse(value,DateTimeFormatter.BASIC_ISO_DATE).atStartOfDay(zone).toInstant().toEpochMilli();
         if(value.endsWith("Z")){zone=ZoneOffset.UTC;value=value.substring(0,value.length()-1);}
@@ -183,7 +183,8 @@ final class CalendarProtocol {
                 try{return ZoneId.of(suffix);}catch(Exception ignored){}
             }
         }
-        throw new Failure("Unsupported calendar time zone");
+        // Calendar-only fallback: unrecognized vendor TZIDs are interpreted as local Yekaterinburg time.
+        return ZoneId.of("Asia/Yekaterinburg");
     }
     static String unescape(String value) {StringBuilder b=new StringBuilder();for(int i=0;i<value.length();i++){char c=value.charAt(i);if(c=='\\'&&i+1<value.length()){c=value.charAt(++i);if(c=='n'||c=='N')c='\n';}b.append(c);}return b.toString();}
 }
