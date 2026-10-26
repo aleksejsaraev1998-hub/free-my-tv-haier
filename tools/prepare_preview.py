@@ -174,8 +174,23 @@ for scheme in ['http', 'https']:
     ET.SubElement(intent, 'action', {a('name'): 'android.intent.action.VIEW'})
     ET.SubElement(intent, 'category', {a('name'): 'android.intent.category.BROWSABLE'})
     ET.SubElement(intent, 'data', {a('scheme'): scheme})
+if args.profile == 'bento-design':
+    ET.SubElement(m, 'uses-permission', {a('name'): 'android.permission.RECORD_AUDIO'})
+    recognition_query = ET.SubElement(queries, 'intent')
+    ET.SubElement(recognition_query, 'action', {a('name'): 'android.speech.RecognitionService'})
 app = m.find('application')
 app.set(a('label'), label)
+if args.profile == 'bento-design':
+    voice = ET.SubElement(app, 'activity', {
+        a('name'): '.VoiceProbeActivity',
+        a('exported'): 'true',
+        a('label'): 'Bento Voice STT Test',
+        a('theme'): '@android:style/Theme.Material.NoActionBar'
+    })
+    voice_intent = ET.SubElement(voice,'intent-filter')
+    ET.SubElement(voice_intent, 'action', {a('name'): 'android.intent.action.MAIN'})
+    ET.SubElement(voice_intent, 'category', {a('name'): 'android.intent.category.LEANBACK_LAUNCHER'})
+
 for permission in list(m.findall('uses-permission')):
     if permission.get(a('name')) == 'android.permission.RECEIVE_BOOT_COMPLETED':
         m.remove(permission)
