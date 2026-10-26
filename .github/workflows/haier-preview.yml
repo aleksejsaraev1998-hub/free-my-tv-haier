@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [standard, lite, bento, bento-home]
+        profile: [standard, lite, bento, bento-home, bento-design]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
