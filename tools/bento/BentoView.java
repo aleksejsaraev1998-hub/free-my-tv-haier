@@ -47,7 +47,7 @@ import java.util.concurrent.Executors;
 
 /** A single, quiet Canvas. All text layout, package queries and bitmap scaling happen outside onDraw. */
 final class BentoView extends View implements BentoData.Listener, CalendarFeed.Listener {
-    private static final int BG=0xFF101114, TILE=0xFF1E2026, EDGE=0xFF2C2F37, FOCUSED=0xFF262931;
+    private static final int BG=0xFF091321, TILE=0xFF15253A, EDGE=0xFF324762, FOCUSED=0xFF21466F;
     private static final int TEXT=0xFFECE8E1, MUTED=0xFFABA69F, DIM=0xFF77746E, UP=0xFF82AF8B, DOWN=0xFFD08C86;
     private final Activity activity;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -74,6 +74,8 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
     private ValueAnimator animator;
     private boolean running, destroyed, loading,reloadApps;
     private int loadedVersion=-1, focus=2, shelfFocus, hiddenTasks;
+    private static final float DOCK_W=136f, DOCK_GAP=22f;
+    private int dockFirstVisible=0;
     private float scale=1, offsetX, offsetY, focusProgress=1;
     private long minute=-1;
     private String date1="",date2="",hours="",minutes="",boardFooter="",weatherRange="",rateFooter="",city="";
@@ -201,8 +203,17 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
     }
     private void layoutApps() {
         int n=apps.size();if(n==0)return;
-        float width=(1760-24*(n-1))/n;
-        for(int i=0;i<n;i++) {App app=apps.get(i);app.rect.set(80+i*(width+24),888,80+i*(width+24)+width,1012);app.text=layout(app.label,label,(int)width-20,1);}
+        // Constant-size console dock: additional apps scroll, never shrink the icons.
+        final int visible=11;
+        if(shelfFocus<dockFirstVisible)dockFirstVisible=shelfFocus;
+        if(shelfFocus>=dockFirstVisible+visible)dockFirstVisible=shelfFocus-visible+1;
+        dockFirstVisible=Math.max(0,Math.min(dockFirstVisible,Math.max(0,n-visible)));
+        for(int i=0;i<n;i++) {
+            App app=apps.get(i);
+            float x=86+(i-dockFirstVisible)*(DOCK_W+DOCK_GAP);
+            app.rect.set(x,876,x+DOCK_W,1018);
+            app.text=layout(app.label,label,(int)DOCK_W-12,1);
+        }
     }
     @Override protected void onSizeChanged(int w,int h,int ow,int oh) {
         scale=Math.min(w/1920f,h/1080f);offsetX=(w-1920*scale)/2;offsetY=(h-1080*scale)/2;
@@ -258,23 +269,25 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
     @Override protected void onDraw(Canvas c) {
         c.drawColor(BG);c.save();c.translate(offsetX,offsetY);c.scale(scale,scale);
         for(int i=0;i<tiles.length;i++) tile(c,i);
-        fill.setColor(TILE);scratch.set(40,860,1880,1040);c.drawRoundRect(scratch,36,36,fill);
+        fill.setColor(0xFF0B1B2E);scratch.set(40,860,1880,1040);c.drawRoundRect(scratch,32,32,fill);
         border.setStrokeWidth(1);border.setColor(EDGE);c.drawRoundRect(scratch,36,36,border);
+        c.save();c.clipRect(60,862,1860,1035);
         for(int i=0;i<apps.size();i++) {
+            if(i<dockFirstVisible||i>=dockFirstVisible+11)continue;
             App app=apps.get(i);RectF r=app.rect;boolean selected=focus==8&&shelfFocus==i;
-            float grow=selected?1+.06f*focusProgress:1;
+            float grow=selected?1+.105f*focusProgress:1;
             c.save();c.scale(grow,grow,r.centerX(),r.centerY());
-            fill.setColor(selected?0xFF303640:0xFF242830);c.drawRoundRect(r,22,22,fill);
-            border.setColor(selected?0xFFD4C6B4:0xFF3B4049);border.setStrokeWidth(selected?2.5f:1);c.drawRoundRect(r,22,22,border);
-            if(selected) {fill.setColor(0xFFBBA48A);scratch.set(r.left+22,r.bottom-7,r.right-22,r.bottom-4);c.drawRoundRect(scratch,2,2,fill);}
+            fill.setColor(selected?0xFF244A79:0xFF1B314C);c.drawRoundRect(r,23,23,fill);
+            border.setColor(selected?0xFF49BBFF:0xFF39516C);border.setStrokeWidth(selected?3.5f:1f);c.drawRoundRect(r,23,23,border);
+            if(selected){fill.setColor(0xFF53BFFF);scratch.set(r.left+18,r.bottom-6,r.right-18,r.bottom-3);c.drawRoundRect(scratch,2,2,fill);}
             c.clipRect(r.left+8,r.top+8,r.right-8,r.bottom-8);
             bitmapPaint.setAlpha(Math.round(255*(selected?app.dim+(1-app.dim)*focusProgress:app.dim)));
             if(app.image!=null) {
                 // Square app emblem above the label; original card geometry and navigation remain intact.
-                float side=Math.min(78f,Math.min(r.width()-24, r.height()-42));
+                float side=Math.min(94f,Math.min(r.width()-18, r.height()-39));
                 float k=Math.min(side/app.image.getWidth(),side/app.image.getHeight());
                 float w=app.image.getWidth()*k,h=app.image.getHeight()*k;
-                scratch.set(r.centerX()-w/2,r.top+7+(side-h)/2,r.centerX()+w/2,r.top+7+(side+h)/2);
+                scratch.set(r.centerX()-w/2,r.top+6+(side-h)/2,r.centerX()+w/2,r.top+6+(side+h)/2);
                 c.drawBitmap(app.image,null,scratch,bitmapPaint);
                 drawLayout(c,app.text,r.left+10,r.bottom-36);
             } else {
@@ -284,6 +297,7 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
             }
             c.restore();
         }
+        c.restore(); // dock viewport
         c.restore();
     }
     private void animateFocus() {
@@ -310,6 +324,7 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
         if(focus==8) {
             if(code==21)shelfFocus=Math.max(0,shelfFocus-1);
             if(code==22)shelfFocus=Math.min(apps.size()-1,shelfFocus+1);
+            layoutApps();
             if(code==19)focus=2;
         } else if(code==20&&(focus==1||focus==2||focus==5||focus==7)) focus=8;
         else {
