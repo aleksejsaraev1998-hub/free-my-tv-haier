@@ -207,7 +207,13 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
     }
     private void message(String s){Toast.makeText(activity,s,Toast.LENGTH_LONG).show();}
     private void open(HomeApps.Item item){if(!HomeApps.open(activity,item,this,0,0,getWidth(),getHeight()))message(Ui.tr("Could not open this item"));}
-    private void system(String action){try{activity.startActivity(new Intent(action));}catch(Exception e){try{activity.startActivity(new Intent(Settings.ACTION_SETTINGS));}catch(Exception ignored){message("Системные настройки недоступны");}}}
+    private void system(String action){
+        if(Settings.ACTION_BLUETOOTH_SETTINGS.equals(action)){
+            if(!SystemScreens.openBluetooth(activity))message("Настройки подключённых устройств недоступны");
+            return;
+        }
+        try{activity.startActivity(new Intent(action));}catch(Exception e){try{activity.startActivity(new Intent(Settings.ACTION_SETTINGS));}catch(Exception ignored){message("Системные настройки недоступны");}}
+    }
     private void activate(){
         if(page==APPS){if(sidebar){sidebar=false;invalidate();}else if(!filtered.isEmpty())open(HomeApps.app(filtered.get(gridFocus).pkg,filtered.get(gridFocus).label));return;}
         if(page==INPUTS){if(!inputs.isEmpty())open(inputs.get(inputFocus));return;}

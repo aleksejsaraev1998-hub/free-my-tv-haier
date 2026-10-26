@@ -166,8 +166,8 @@ a = lambda name: '{' + ns + '}' + name
 manifest = root / 'app/AndroidManifest.xml'
 tree = ET.parse(manifest)
 m = tree.getroot()
-m.set(a('versionCode'), '11')
-m.set(a('versionName'), '1.1-haier-' + args.profile + '-ui.11')
+m.set(a('versionCode'), '12')
+m.set(a('versionName'), '1.1-haier-' + args.profile + '-ui.12')
 # Android 11+ package visibility: ask only for browser intent handlers.
 queries = m.find('queries')
 for visible_package in ['com.mediatek.tvinput', 'com.google.android.tvlauncher']:
