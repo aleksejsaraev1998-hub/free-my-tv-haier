@@ -16,7 +16,7 @@ args = parser.parse_args()
 lite = args.profile in ('lite', 'bento', 'bento-home', 'bento-design')
 home_variant = args.profile == 'bento-home'
 PACKAGE = 'io.freemytv.haierpreview.home' if home_variant else ('io.freemytv.haierpreview.bentodesign' if args.profile == 'bento-design' else 'io.freemytv.haierpreview' + ('.' + args.profile if args.profile != 'standard' else ''))
-label = 'Free My TV Haier ' + ('Bento HOME Test' if home_variant else 'Bento Preview' if args.profile == 'bento' else 'Lite Preview' if lite else 'Preview')
+label = 'Bento HOME' if home_variant else ('Bento Design' if args.profile == 'bento-design' else 'Free My TV Haier ' + ('Bento Preview' if args.profile == 'bento' else 'Lite Preview' if lite else 'Preview'))
 root = Path(args.source).resolve()
 head = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
 if head != PIN:
@@ -166,10 +166,12 @@ a = lambda name: '{' + ns + '}' + name
 manifest = root / 'app/AndroidManifest.xml'
 tree = ET.parse(manifest)
 m = tree.getroot()
-m.set(a('versionCode'), '10')
-m.set(a('versionName'), '1.1-haier-' + args.profile + '-ui.10')
+m.set(a('versionCode'), '11')
+m.set(a('versionName'), '1.1-haier-' + args.profile + '-ui.11')
 # Android 11+ package visibility: ask only for browser intent handlers.
 queries = m.find('queries')
+for visible_package in ['com.mediatek.tvinput', 'com.google.android.tvlauncher']:
+    ET.SubElement(queries, 'package', {a('name'): visible_package})
 intent = ET.SubElement(queries, 'intent')
 ET.SubElement(intent, 'action', {a('name'): 'android.intent.action.MAIN'})
 ET.SubElement(intent, 'category', {a('name'): 'android.intent.category.APP_BROWSER'})

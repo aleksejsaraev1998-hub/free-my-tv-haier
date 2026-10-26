@@ -53,7 +53,7 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final ExecutorService loader=Executors.newSingleThreadExecutor();
     private final Paint fill=new Paint(3),stroke=new Paint(3),bitmapPaint=new Paint(3);
-    private final TextPaint label=text(27,MUTED,Ui.regular),body=text(32,TEXT,Ui.regular),title=text(42,TEXT,Ui.regular),clock=text(64,TEXT,Ui.light),temp=text(78,TEXT,Ui.light);
+    private final TextPaint label=text(27,MUTED,Ui.regular),body=text(32,TEXT,Ui.regular),title=text(42,TEXT,Ui.regular),clock=text(64,TEXT,Ui.light),temp=text(78,TEXT,Ui.light),caption=text(25,TEXT,Ui.regular);
     private final RectF rect=new RectF();
     private final SharedPreferences board;
     private final BentoData data;
@@ -100,31 +100,35 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
     private void refreshSystem(){
         network="Нет сети";
         try{android.net.ConnectivityManager cm=activity.getSystemService(android.net.ConnectivityManager.class);android.net.NetworkCapabilities n=cm.getNetworkCapabilities(cm.getActiveNetwork());if(n!=null)network=n.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)?"Wi-Fi":n.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)?"Ethernet":"Сеть";}catch(Exception ignored){}
-        inputs=InputCatalog.read(activity);inputFocus=Math.max(0,Math.min(inputFocus,inputs.size()-1));hdmiName="Источники";hdmiState="Нет подключённого HDMI";
-        for(HomeApps.Item i:inputs)if(i.kind==HomeApps.INPUT&&i.connected){hdmiName=i.label;hdmiState="Подключено";break;}
-        hdmiDescription=layout(hdmiName,body,270,2);layoutHdmiState=layout(hdmiState,label,266,2);updateInputTitle();invalidate();
+        inputs=InputCatalog.read(activity);inputFocus=Math.max(0,Math.min(inputFocus,inputs.size()-1));hdmiName="Источники";hdmiState="Нет сигнала";
+        for(HomeApps.Item i:inputs)if(i.symbol.equals("hdmi")){hdmiName=i.label;hdmiState=InputCatalog.state(i);if(i.connected||i.label.contains(" — "))break;}
+        hdmiDescription=layout(hdmiName,body,270,3);layoutHdmiState=layout(hdmiState,label,266,1);updateInputTitle();invalidate();
     }
     private void loadApps(){
         if(loading){reloadApps=true;return;}loading=true;
         loader.execute(()->{
             List<String[]> choices=HomeApps.shelfCandidates(activity);List<App> all=new ArrayList<>();
             for(String[] choice:choices)all.add(loadApp(choice));
-            List<String> selected=Prefs.shelf();if(selected==null)selected=HomeApps.shelfPackages(activity);
+            List<String> selected=Prefs.shelf();if(selected==null)selected=defaultDock(all);
             List<App> dock=new ArrayList<>();for(String pkg:selected)for(App a:all)if(pkg.equals(a.pkg)){dock.add(a);break;}
-            App hdmi=new App();hdmi.kind=5;hdmi.label="HDMI";hdmi.caption=layout(hdmi.label,label,174,2);dock.add(hdmi);
-            App more=new App();more.kind=3;more.label="Все приложения";more.caption=layout(more.label,label,174,2);dock.add(more);
+            App hdmi=new App();hdmi.kind=5;hdmi.label="HDMI";hdmi.caption=layout(hdmi.label,caption,174,2);dock.add(hdmi);
+            App more=new App();more.kind=3;more.label="Все приложения";more.caption=layout(more.label,caption,174,2);dock.add(more);
             handler.post(()->{loading=false;if(destroyed)return;candidates=choices;catalog.clear();catalog.addAll(all);apps.clear();apps.addAll(dock);shelfFocus=Math.max(0,Math.min(shelfFocus,apps.size()-1));filterApps();layoutApps();invalidate();if(reloadApps){reloadApps=false;loadApps();}});
         });
     }
     private App loadApp(String[] choice){App a=new App();a.pkg=choice[0];a.label=choice[1];
         try{Drawable d=activity.getPackageManager().getApplicationIcon(a.pkg);a.image=Bitmap.createBitmap(128,128,Bitmap.Config.ARGB_8888);d.setBounds(0,0,128,128);d.draw(new Canvas(a.image));}catch(Exception ignored){}
-        a.caption=layout(a.label,label,174,2);return a;
+        a.caption=layout(a.label,caption,174,2);return a;
     }
-    private void filterApps(){filtered.clear();List<String> saved=Prefs.shelf();if(saved==null)saved=HomeApps.shelfPackages(activity);for(App a:catalog)if(filter==0||saved.contains(a.pkg))filtered.add(a);gridFocus=Math.max(0,Math.min(gridFocus,filtered.size()-1));gridFirstRow=0;}
-    private void layoutApps(){int visible=BentoLayout.DOCK_VISIBLE;if(shelfFocus<dockFirstVisible)dockFirstVisible=shelfFocus;if(shelfFocus>=dockFirstVisible+visible)dockFirstVisible=shelfFocus-visible+1;dockFirstVisible=Math.max(0,Math.min(dockFirstVisible,Math.max(0,apps.size()-visible)));for(int i=0;i<apps.size();i++){float x=104+(i-dockFirstVisible)*190;apps.get(i).box.set(x,806,x+144,950);}}
+    private List<String> defaultDock(List<App> all){List<String> result=new ArrayList<>();for(String hint:new String[]{"youtube","vk видео","wink","rutube","evo tv","twitch","zona"})for(App a:all)if(a.label.toLowerCase(Locale.ROOT).equals(hint)||a.label.toLowerCase(Locale.ROOT).startsWith(hint+" -")){if(!result.contains(a.pkg))result.add(a.pkg);break;}if(result.isEmpty())for(App a:all){if(a.label.startsWith("Free My TV"))continue;result.add(a.pkg);if(result.size()==7)break;}return result;}
+    private List<String> dockPackages(){List<String> result=new ArrayList<>();for(App a:apps)if(a.kind==0)result.add(a.pkg);return result;}
+    private void filterApps(){filtered.clear();List<String> saved=Prefs.shelf();if(saved==null)saved=dockPackages();for(App a:catalog)if(filter==0||saved.contains(a.pkg))filtered.add(a);gridFocus=Math.max(0,Math.min(gridFocus,filtered.size()-1));gridFirstRow=0;}
+    private void layoutApps(){int visible=BentoLayout.DOCK_VISIBLE;if(shelfFocus<dockFirstVisible)dockFirstVisible=shelfFocus;if(shelfFocus>=dockFirstVisible+visible)dockFirstVisible=shelfFocus-visible+1;dockFirstVisible=Math.max(0,Math.min(dockFirstVisible,Math.max(0,apps.size()-visible)));for(int i=0;i<apps.size();i++){float x=104+(i-dockFirstVisible)*190;apps.get(i).box.set(x,798,x+144,942);}}
     @Override protected void onSizeChanged(int w,int h,int ow,int oh){scale=Math.min(w/1920f,h/1080f);offsetX=(w-1920*scale)/2;offsetY=(h-1080*scale)/2;for(String symbol:new String[]{"wifi","bluetooth","settings","hdmi","apps","tv","sync","power_settings_new"})Symbols.warm(getContext(),symbol,64*scale);Symbols.warmWeather(getContext(),110*scale);layoutApps();}
     private void panel(Canvas c,float l,float t,float r,float b,boolean selected){rect.set(l,t,r,b);fill.setColor(selected?0xCC204C78:0xA81A283B);c.drawRoundRect(rect,22,22,fill);stroke.setStrokeWidth(selected?3:1);stroke.setColor(selected?BLUE:0x667F91A8);c.drawRoundRect(rect,22,22,stroke);}
     private void icon(Canvas c,String s,float x,float y,float size,int color){
+        if(s.equals("hdmi")){stroke.setColor(color);stroke.setStrokeWidth(Math.max(2,size*.055f));rect.set(x-size*.45f,y-size*.25f,x+size*.45f,y+size*.25f);c.drawRoundRect(rect,size*.08f,size*.08f,stroke);c.drawLine(x-size*.25f,y+size*.28f,x+size*.25f,y+size*.28f,stroke);c.drawLine(x-size*.25f,y-size*.06f,x+size*.25f,y-size*.06f,stroke);return;}
+
         if(s.equals("wifi")){stroke.setColor(color);stroke.setStrokeWidth(3);for(int i=0;i<3;i++){float r=size*(.25f+i*.23f);rect.set(x-r,y-r*.7f,x+r,y+r*1.3f);c.drawArc(rect,220,100,false,stroke);}fill.setColor(color);c.drawCircle(x,y+size*.25f,2.5f,fill);}
         else if(s.equals("bluetooth")){stroke.setColor(color);stroke.setStrokeWidth(3);c.drawLine(x,y-size*.5f,x,y+size*.5f,stroke);c.drawLine(x,y-size*.5f,x+size*.3f,y-size*.22f,stroke);c.drawLine(x+size*.3f,y-size*.22f,x-size*.27f,y+size*.27f,stroke);c.drawLine(x-size*.27f,y-size*.27f,x+size*.3f,y+size*.22f,stroke);c.drawLine(x+size*.3f,y+size*.22f,x,y+size*.5f,stroke);}
         else Symbols.draw(getContext(),c,s,x,y,size,color);
@@ -139,9 +143,9 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
         else {panel(c,72,212,1202,722,focus==2);c.drawText("Календарь скрыт",110,280,title);c.drawText("OK — настройки календаря",110,330,label);}
         panel(c,1230,212,1850,464,focus==1);c.drawText(city,1266,264,body);
         if(board.getBoolean("weather-visible",true)){c.drawText(data.temperature,1266,352,temp);if(data.weatherAt>0)icon(c,data.weatherSymbol,1760,326,100,TEXT);drawLayout(c,weatherDescription,1266,373);c.drawText(weatherRange,1266,444,label);}else c.drawText("Погода скрыта",1266,352,body);
-        panel(c,1230,490,1542,722,focus==4);c.drawText("HDMI",1264,537,body);drawLayout(c,hdmiDescription,1264,561);label.setColor(hdmiState.equals("Подключено")?0xFF62E2AF:MUTED);drawLayout(c,layoutHdmiState,1264,659);label.setColor(MUTED);
+        panel(c,1230,490,1542,722,focus==4);c.drawText("HDMI",1264,537,body);drawLayout(c,hdmiDescription,1264,556);label.setColor(hdmiState.equals("Подключено")?0xFF62E2AF:MUTED);drawLayout(c,layoutHdmiState,1264,677);label.setColor(MUTED);
         panel(c,1566,490,1850,722,focus==5);c.drawText("Настройки",1598,537,body);icon(c,"settings",1708,620,78,TEXT);
-        panel(c,72,778,1850,1028,false);c.save();c.clipRect(82,762,1840,1026);
+        panel(c,72,778,1850,1028,false);c.save();c.clipRect(82,762,1840,1038);
         for(int i=dockFirstVisible;i<Math.min(apps.size(),dockFirstVisible+BentoLayout.DOCK_VISIBLE);i++){App a=apps.get(i);appIcon(c,a,a.box.left,a.box.top,focus==8&&i==shelfFocus);}
         c.restore();
         if(focus==8&&!apps.isEmpty())centered(c,apps.get(shelfFocus).label,960,1065,label);
@@ -166,9 +170,9 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
         pageHeader(c,"HDMI / Источники","OK — переключить источник · Назад — главный экран");
         if(inputs.isEmpty()){c.drawText("Android TV не сообщил доступные источники",90,230,body);return;}
         int first=Math.max(0,inputFocus-5);
-        for(int i=first;i<Math.min(inputs.size(),first+6);i++){HomeApps.Item a=inputs.get(i);float y=180+(i-first)*118;panel(c,76,y,976,y+98,i==inputFocus);icon(c,a.kind==HomeApps.INPUT?"hdmi":"tv",122,y+48,36,TEXT);c.save();c.clipRect(170,y+10,950,y+90);c.drawText(a.label,178,y+40,body);c.drawText(a.kind==HomeApps.INPUT?(a.connected?"Подключено":"Нет сигнала"):"ТВ / Антенна",178,y+76,label);c.restore();}
-        HomeApps.Item a=inputs.get(inputFocus);panel(c,1020,180,1840,890,false);icon(c,a.kind==HomeApps.INPUT?"hdmi":"tv",1430,360,150,TEXT);
-        drawLayout(c,inputTitle,1070,520);c.drawText(a.kind==HomeApps.INPUT?(a.connected?"Подключено":"Нет сигнала"):"ТВ / Антенна",1070,660,body);
+        for(int i=first;i<Math.min(inputs.size(),first+6);i++){HomeApps.Item a=inputs.get(i);float y=180+(i-first)*118;panel(c,76,y,976,y+98,i==inputFocus);icon(c,a.symbol,122,y+48,36,TEXT);c.save();c.clipRect(170,y+10,950,y+90);c.drawText(a.label,178,y+40,body);c.drawText(a.kind==HomeApps.INPUT?InputCatalog.state(a):"ТВ / Антенна",178,y+76,label);c.restore();}
+        HomeApps.Item a=inputs.get(inputFocus);panel(c,1020,180,1840,890,false);icon(c,a.symbol,1430,360,150,TEXT);
+        drawLayout(c,inputTitle,1070,520);c.drawText(a.kind==HomeApps.INPUT?InputCatalog.state(a):"ТВ / Антенна",1070,660,body);
         c.drawText("Данные Android TV / HDMI-CEC",1070,800,label);
     }
     private StaticLayout inputTitle;
@@ -228,7 +232,7 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
         else if(section==4){row("Город и координаты",city);row("Обновить погоду",weatherRange);row("Показывать погоду",on("weather-visible",true));row("Источник данных","MET Norway · CC BY 4.0");}
         else if(section==5){row("Горный пейзаж",board.getBoolean("plain-background",false)?"Выключен — однотонный фон":"Включён");row("Анимация фокуса",on("animations",true));}
         else if(section==6){row("Анимация фокуса",on("animations",true));row("Режим отрисовки","По событиям; нет шейдеров и видеозаставок");row("Кэш данных","Сохранённые события и погода при отсутствии сети");}
-        else {row("Выбор главного экрана","Открыть системные настройки HOME");row("Резервный Google Launcher","Открыть установленный резервный лаунчер");row("Системные параметры","Android TV");row("О Bento", "UI release 10 · календарь без записи на сервер");}
+        else {row("Выбор главного экрана","Открыть системные настройки HOME");row("Резервный Google Launcher","Открыть установленный резервный лаунчер");row("Системные параметры","Android TV");row("О Bento", "UI release 11 · календарь без записи на сервер");}
         rowFocus=Math.max(0,Math.min(rowFocus,rowLabels.size()-1));invalidate();
     }
     private void toggle(String key,boolean def){board.edit().putBoolean(key,!board.getBoolean(key,def)).apply();buildRows();}
@@ -243,13 +247,13 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
         else if(section==7){if(rowFocus==0)system(Settings.ACTION_HOME_SETTINGS);else if(rowFocus==1)open(HomeApps.app("com.google.android.tvlauncher","Google TV"));else if(rowFocus==2)system(Settings.ACTION_SETTINGS);}
         invalidate();
     }
-    private void toggleFavorite(){if(filtered.isEmpty())return;App a=filtered.get(gridFocus);List<String> saved=Prefs.shelf();if(saved==null)saved=HomeApps.shelfPackages(activity);List<String> next=new ArrayList<>(saved);if(next.remove(a.pkg))message("Убрано из дока: "+a.label);else{next.add(a.pkg);message("Добавлено в док: "+a.label);}Prefs.setShelf(next);loadApps();}
-    private void editShelf(){List<String> saved=Prefs.shelf();if(saved==null)saved=HomeApps.shelfPackages(activity);List<String> selection=new ArrayList<>(saved);boolean[] checked=new boolean[candidates.size()];String[] names=new String[checked.length];for(int i=0;i<names.length;i++){names[i]=candidates.get(i)[1];checked[i]=selection.contains(candidates.get(i)[0]);}dialog=new NightDialogs.Builder(activity).setTitle("Приложения в доке").setMultiChoiceItems(names,checked,(d,i,on)->{String pkg=candidates.get(i)[0];if(on)selection.add(pkg);else selection.remove(pkg);}).setPositiveButton(Ui.tr("Save"),(d,n)->{Prefs.setShelf(selection);loadApps();}).setNegativeButton(Ui.tr("Cancel"),null).show();}
-    private void reorderShelf(){List<String> saved=Prefs.shelf();if(saved==null)saved=HomeApps.shelfPackages(activity);final List<String> order=new ArrayList<>(saved);List<String> names=new ArrayList<>();for(String pkg:order){String name=pkg;for(App a:catalog)if(pkg.equals(a.pkg))name=a.label;names.add(name);}dialog=new NightDialogs.Builder(activity).setTitle("Переместить в начало дока").setItems(names.toArray(new String[0]),(d,i)->{String pkg=order.remove(i);order.add(0,pkg);Prefs.setShelf(order);loadApps();}).show();}
+    private void toggleFavorite(){if(filtered.isEmpty())return;App a=filtered.get(gridFocus);List<String> saved=Prefs.shelf();if(saved==null)saved=dockPackages();List<String> next=new ArrayList<>(saved);if(next.remove(a.pkg))message("Убрано из дока: "+a.label);else{next.add(a.pkg);message("Добавлено в док: "+a.label);}Prefs.setShelf(next);loadApps();}
+    private void editShelf(){List<String> saved=Prefs.shelf();if(saved==null)saved=dockPackages();List<String> selection=new ArrayList<>(saved);boolean[] checked=new boolean[candidates.size()];String[] names=new String[checked.length];for(int i=0;i<names.length;i++){names[i]=candidates.get(i)[1];checked[i]=selection.contains(candidates.get(i)[0]);}dialog=new NightDialogs.Builder(activity).setTitle("Приложения в доке").setMultiChoiceItems(names,checked,(d,i,on)->{String pkg=candidates.get(i)[0];if(on)selection.add(pkg);else selection.remove(pkg);}).setPositiveButton(Ui.tr("Save"),(d,n)->{Prefs.setShelf(selection);loadApps();}).setNegativeButton(Ui.tr("Cancel"),null).show();}
+    private void reorderShelf(){List<String> saved=Prefs.shelf();if(saved==null)saved=dockPackages();final List<String> order=new ArrayList<>(saved);List<String> names=new ArrayList<>();for(String pkg:order){String name=pkg;for(App a:catalog)if(pkg.equals(a.pkg))name=a.label;names.add(name);}dialog=new NightDialogs.Builder(activity).setTitle("Переместить в начало дока").setItems(names.toArray(new String[0]),(d,i)->{String pkg=order.remove(i);order.add(0,pkg);Prefs.setShelf(order);loadApps();}).show();}
     private void weatherSettings(){LinearLayout form=new LinearLayout(activity);form.setOrientation(1);form.setPadding(24,12,24,12);EditText name=calendarField(form,"Город",Prefs.city(),InputType.TYPE_CLASS_TEXT);EditText lat=calendarField(form,"Широта",Prefs.latitude(),InputType.TYPE_CLASS_TEXT);EditText lon=calendarField(form,"Долгота",Prefs.longitude(),InputType.TYPE_CLASS_TEXT);dialog=new NightDialogs.Builder(activity).setTitle("Местоположение погоды").setView(form).setPositiveButton(Ui.tr("Save"),null).setNegativeButton(Ui.tr("Cancel"),null).create();dialog.show();dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{try{double la=Double.parseDouble(lat.getText().toString()),lo=Double.parseDouble(lon.getText().toString());if(!Double.isFinite(la)||!Double.isFinite(lo)||Math.abs(la)>90||Math.abs(lo)>180)throw new Exception();Prefs.setCity(name.getText().toString().trim(),Double.toString(la),Double.toString(lo));data.refresh(true);changed();dialog.dismiss();}catch(Exception ex){message("Проверьте широту и долготу");}});}
     @Override public void calendarChanged(){if(!destroyed)rebuildBoard();}
     private void changeDate(LocalDate date){if(date.getYear()<1970||date.getYear()>2100)return;monthPanel.select(date);if(!calendar.month.equals(monthPanel.month))calendar.setMonth(monthPanel.month);else rebuildBoard();}
-    private void rebuildBoard(){String empty=!calendar.configured?Ui.tr("Connect your calendar in Settings"):calendar.activeCount==0?Ui.tr("Choose visible calendars"):calendar.loaded?Ui.tr("No events on this day"):calendar.failed?Ui.tr("Calendar could not be loaded"):Ui.tr("Waiting for calendar data");monthPanel.update(calendar.events,empty);footer=calendarActive?"← → ↑ ↓ — день · OK — события · MENU — месяц / подписки":"OK — выбрать день · MENU — настройки";if(calendar.failed)footer="Ошибка обновления"+(calendar.updated>0?" · показаны сохранённые события":"");calendarFooter=layout(footer,label,1060,1);layoutHdmiState=layout(hdmiState,label,266,2);invalidate();}
+    private void rebuildBoard(){String empty=!calendar.configured?Ui.tr("Connect your calendar in Settings"):calendar.activeCount==0?Ui.tr("Choose visible calendars"):calendar.loaded?Ui.tr("No events on this day"):calendar.failed?Ui.tr("Calendar could not be loaded"):Ui.tr("Waiting for calendar data");monthPanel.update(calendar.events,empty);footer=calendarActive?"← → ↑ ↓ — день · OK — события · MENU — месяц / подписки":"OK — выбрать день · MENU — настройки";if(calendar.failed)footer="Ошибка обновления"+(calendar.updated>0?" · показаны сохранённые события":"");calendarFooter=layout(footer,label,1060,1);layoutHdmiState=layout(hdmiState,label,266,1);invalidate();}
     private void calendarMenu() {
         dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("Calendar"))
             .setItems(new String[]{Ui.tr("Today"),Ui.tr("Previous month"),Ui.tr("Next month"),Ui.tr("Refresh calendar"),Ui.tr("Calendars")},(d,index)->{

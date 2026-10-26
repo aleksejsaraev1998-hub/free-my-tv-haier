@@ -39,7 +39,7 @@ final class MonthPanel {
         date=selected.getDayOfMonth()+" "+selected.getMonth().getDisplayName(TextStyle.FULL,Ui.locale());
         rows.clear();java.util.List<CalendarProtocol.Event> agenda=events();total=agenda.size();float y=324;
         for(CalendarProtocol.Event e:agenda) {
-            Entry row=new Entry();row.title=layout(e.title.isEmpty()?Ui.tr("Busy"):e.title,eventPaint,350,2);row.height=Math.max(56,row.title.getHeight())+12;if(y+row.height>652)break;
+            Entry row=new Entry();row.title=layout(e.title.isEmpty()?Ui.tr("Busy"):e.title,eventPaint,326,2);row.height=Math.max(56,row.title.getHeight())+12;if(y+row.height>652)break;
             row.y=y;row.color=e.color;row.start=e.allDay?Ui.tr("All day"):formatTime(e.start);row.end=e.allDay?"":formatTime(e.end);rows.add(row);y+=row.height;
         }
         visible=rows.size();empty=noEvents;emptyText=layout(empty,eventPaint,430,5);
@@ -63,7 +63,7 @@ final class MonthPanel {
         small.setTextAlign(Paint.Align.LEFT);c.drawText(selected.toEpochDay()==today?Ui.tr("Today"):date,712,274,title);
         c.drawLine(712,298,1168,298,line);
         if(rows.isEmpty()){c.save();c.translate(712,330);emptyText.draw(c);c.restore();}
-        for(int i=0;i<rows.size();i++){Entry row=rows.get(i);paint.setColor(row.color);c.drawRoundRect(706,row.y,711,row.y+row.height-12,2,2,paint);c.drawText(row.start,724,row.y+25,small);c.save();c.translate(814,row.y);row.title.draw(c);c.restore();}
+        for(int i=0;i<rows.size();i++){Entry row=rows.get(i);paint.setColor(row.color);c.drawRoundRect(706,row.y,711,row.y+row.height-12,2,2,paint);c.drawText(row.start,724,row.y+25,small);c.save();c.translate(840,row.y);row.title.draw(c);c.restore();}
         small.setTextAlign(Paint.Align.LEFT);
     }
     LocalDate hit(float x,float y){int col=(int)((x-LEFT)/CELL),row=(int)((y-TOP)/rowHeight);if(x<LEFT||x>=LEFT+WIDTH||y<TOP||row<0||row>=rowCount)return null;LocalDate date=first.plusDays(row*7+col);return YearMonth.from(date).equals(month)?date:null;}
