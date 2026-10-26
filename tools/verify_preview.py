@@ -10,13 +10,13 @@ import re
 
 p = argparse.ArgumentParser()
 p.add_argument('source', type=Path)
-p.add_argument('--profile', choices=['standard', 'lite', 'bento', 'bento-home'], required=True)
+p.add_argument('--profile', choices=['standard', 'lite', 'bento', 'bento-home', 'bento-design'], required=True)
 p.add_argument('--output', type=Path, required=True)
 args = p.parse_args()
 root = args.source.resolve()
 args.output.mkdir(parents=True, exist_ok=True)
 is_home = args.profile == 'bento-home'
-package = 'io.freemytv.haierpreview.home' if is_home else 'io.freemytv.haierpreview' + ('.' + args.profile if args.profile != 'standard' else '')
+package = 'io.freemytv.haierpreview.home' if is_home else ('io.freemytv.haierpreview.bentodesign' if args.profile == 'bento-design' else 'io.freemytv.haierpreview' + ('.' + args.profile if args.profile != 'standard' else ''))
 apk = root / 'FreeMyTV.apk'
 bt = Path(os.environ['ANDROID_HOME']) / 'build-tools/34.0.0'
 ns = '{http://schemas.android.com/apk/res/android}'
@@ -46,11 +46,11 @@ bytecode = command(javap, '-classpath', root/'out/classes', '-c', package+'.Adb'
 assert bytecode.count('athrow') == 2 and 'java/net/' not in bytecode
 assert 'Haier Preview: shell is disabled.' in bytecode
 assert 'Haier Preview: system changes are disabled.' in bytecode
-if args.profile in ('lite', 'bento', 'bento-home'):
+if args.profile in ('lite', 'bento', 'bento-home', 'bento-design'):
     scene = command(javap, '-classpath', root/'out/classes', '-c', package+'.Scene')
     assert not re.search(r'\bnew\b[^\n]*// class android/graphics/RuntimeShader', scene), 'Lite shader constructor restored'
     (args.output/'lite-scene-bytecode.txt').write_text(scene)
-if args.profile in ('bento', 'bento-home'):
+if args.profile in ('bento', 'bento-home', 'bento-design'):
     home = command(javap, '-classpath', root/'out/classes', '-c', package+'.HomeActivity')
     assert 'class ' + package.replace('.','/')+'/BentoView' in home
     assert 'class ' + package.replace('.','/')+'/HomeView' not in home

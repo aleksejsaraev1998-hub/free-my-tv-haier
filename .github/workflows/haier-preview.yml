@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [standard, lite, bento, bento-home]
+        profile: [standard, lite, bento, bento-home, bento-design]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -52,6 +52,10 @@ jobs:
         env:
           PREVIEW_SIGNING_KEY: ${{ secrets.HAIER_PREVIEW_KEYSTORE_BASE64 }}
         run: |
+          if [ "${{ matrix.profile }}" = "bento-home" ] && [ -z "$PREVIEW_SIGNING_KEY" ]; then
+            echo "::error::Bento HOME signing secret HAIER_PREVIEW_KEYSTORE_BASE64 is required. Refusing ephemeral-signature HOME build."
+            exit 1
+          fi
           if [ -n "$PREVIEW_SIGNING_KEY" ]; then
             printf '%s' "$PREVIEW_SIGNING_KEY" | base64 --decode > freemytv.keystore
           fi
@@ -68,7 +72,7 @@ jobs:
           cd deliverables
           sha256sum *.apk > SHA256SUMS.txt
           echo "Profile: $PROFILE; universal Java/Dex, minSdk 26, targetSdk 33; TV runtime test pending." > COMPATIBILITY.txt
-          echo 'Optional HAIER_PREVIEW_KEYSTORE_BASE64 retains signing identity; otherwise each CI run uses a disposable key.' >> COMPATIBILITY.txt
+          echo 'Bento HOME builds REQUIRE HAIER_PREVIEW_KEYSTORE_BASE64 and never use disposable CI signing keys.' >> COMPATIBILITY.txt
       - uses: actions/upload-artifact@v4
         with:
           name: FreeMyTV-Haier-${{ matrix.profile }}-Preview-universal
