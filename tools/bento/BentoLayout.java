@@ -1,15 +1,21 @@
 package io.freemytv;
 
-/** Logical 1920x1080 coordinates. Shared by painting, focus and hit testing. */
+/** Logical reference geometry shared by hit testing and D-pad navigation. */
 final class BentoLayout {
     private BentoLayout() {}
-    static final float WIDTH = 1920, HEIGHT = 1080;
-    static final float MARGIN = 40, GAP = 24, PADDING = 40, RADIUS = 36;
-    // clock, weather, board, live TV, inputs, settings, exchange rates, quick launch
-    static final float[][] TILES = {
-        {40,40,420,552}, {40,576,420,820}, {444,40,1188,820},
-        {1212,40,1512,284}, {1212,308,1512,552}, {1212,576,1512,820},
-        {1536,40,1880,284}, {1536,308,1880,820}
+    static final float WIDTH=1920,HEIGHT=1080;
+    static final int DOCK_VISIBLE=9;
+    // header settings, weather, calendar + agenda, reserved TV, HDMI, settings, network, Bluetooth
+    static final float[][] TILES={
+        {1778,60,1862,146},{1230,212,1850,464},{72,212,1202,722},
+        {0,0,0,0},{1230,490,1542,722},{1566,490,1850,722},
+        {1538,60,1654,146},{1674,60,1758,146}
     };
-    static final float[] SHELF = {40,860,1880,1040};
+    static final float[] SHELF={72,778,1850,1028};
+    // Key codes UP, DOWN, LEFT, RIGHT. Every visible area is reachable from the dock.
+    static final int[][] NEXT={
+        {0,1,7,0},{6,4,2,1},{6,8,2,1},{2,8,2,4},
+        {1,8,2,5},{1,8,4,5},{6,1,2,7},{7,1,6,0},{2,8,8,8}
+    };
+    static int next(int focus,int key){return NEXT[focus][key-19];}
 }

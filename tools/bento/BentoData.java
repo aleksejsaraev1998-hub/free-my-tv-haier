@@ -28,6 +28,7 @@ final class BentoData {
     private long attempted;
     private String place = "";
     private Listener listener;
+    String weatherSymbol="cloud";
     String temperature = "—", range = "—", condition = Ui.tr("No weather data");
     String usd = "—", eur = "—", ratesDate = Ui.tr("No exchange rate data");
     int usdDirection, eurDirection;
@@ -43,12 +44,13 @@ final class BentoData {
     }
 
     void listen(Listener value) { listener = value; }
-    void refresh() {
+    void refresh() { refresh(false); }
+    void refresh(boolean force) {
         long now = System.currentTimeMillis();
         String coordinates = Prefs.latitude() + "," + Prefs.longitude();
-        if (busy || now >= attempted && now - attempted < 120000) return;
-        boolean weather = weatherAt == 0 || now < weatherAt || now - weatherAt >= 3600000 || !place.equals(coordinates);
-        boolean rates = ratesAt == 0 || now < ratesAt || now - ratesAt >= 3600000;
+        if (busy || !force && now >= attempted && now - attempted < 120000) return;
+        boolean weather = force || weatherAt == 0 || now < weatherAt || now - weatherAt >= 3600000 || !place.equals(coordinates);
+        boolean rates = false; // The reference UI has no exchange-rate widget; do not fetch unused data.
         if (!weather && !rates) return;
         if (!place.equals(coordinates)) {
             weatherAt = 0; temperature = "—"; range = "—"; condition = Ui.tr("No weather data");
@@ -127,6 +129,7 @@ final class BentoData {
             }
             range = degrees(lo) + " / " + degrees(hi);
             String code = first.optJSONObject("next_1_hours") == null ? "" : first.getJSONObject("next_1_hours").getJSONObject("summary").optString("symbol_code");
+            weatherSymbol=code.contains("thunder")?"thunderstorm":code.contains("snow")||code.contains("sleet")?"snowflake":code.contains("rain")?"rainy":code.contains("fog")?"foggy":code.startsWith("clearsky")?(code.contains("night")?"clear_night":"sunny"):code.startsWith("fair")||code.startsWith("partlycloudy")?(code.contains("night")?"partly_cloudy_night":"partly_cloudy_day"):"cloud";
             if (code.contains("thunder")) condition = Ui.tr("Thunderstorm");
             else if (code.contains("snow") || code.contains("sleet")) condition = Ui.tr("Snow");
             else if (code.contains("rain")) condition = Ui.tr("Rain");
