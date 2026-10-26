@@ -15,7 +15,7 @@ parser.add_argument('--profile', choices=['standard', 'lite', 'bento', 'bento-ho
 args = parser.parse_args()
 lite = args.profile in ('lite', 'bento', 'bento-home', 'bento-design')
 home_variant = args.profile == 'bento-home'
-PACKAGE = 'io.freemytv.haierpreview.home' if home_variant else 'io.freemytv.haierpreview' + ('.' + args.profile if args.profile != 'standard' else '')
+PACKAGE = 'io.freemytv.haierpreview.home' if home_variant else ('io.freemytv.haierpreview.bentodesign' if args.profile == 'bento-design' else 'io.freemytv.haierpreview' + ('.' + args.profile if args.profile != 'standard' else ''))
 label = 'Free My TV Haier ' + ('Bento HOME Test' if home_variant else 'Bento Preview' if args.profile == 'bento' else 'Lite Preview' if lite else 'Preview')
 root = Path(args.source).resolve()
 head = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
