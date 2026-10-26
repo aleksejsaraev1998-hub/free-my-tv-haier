@@ -48,7 +48,7 @@ import java.util.concurrent.Executors;
 /** A single, quiet Canvas. All text layout, package queries and bitmap scaling happen outside onDraw. */
 final class BentoView extends View implements BentoData.Listener, CalendarFeed.Listener {
     private static final int BG=0xFF101114, TILE=0xFF1E2026, EDGE=0xFF2C2F37, FOCUSED=0xFF262931;
-    private static final int TEXT=0xFF8F8B84, MUTED=0xFF67645F, DIM=0xFF4A4845, UP=0xFF5E8466, DOWN=0xFF9C6660;
+    private static final int TEXT=0xFFECE8E1, MUTED=0xFFABA69F, DIM=0xFF77746E, UP=0xFF82AF8B, DOWN=0xFFD08C86;
     private final Activity activity;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService loader = Executors.newSingleThreadExecutor();
@@ -178,7 +178,7 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
         });
     }
     private App loadApp(String pkg,List<String[]> choices) {
-        App app=new App(); app.pkg=pkg;app.kind=0;app.label=pkg;
+        App app=new App(); app.pkg=pkg;app.kind=0;app.label=pkg;app.dim=.88f;
         for(String[] c:choices) if(c[0].equals(pkg)) app.label=c[1];
         try {
             Drawable drawable=activity.getPackageManager().getApplicationBanner(pkg);
@@ -194,7 +194,7 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
                 if(Color.alpha(color)<32) continue;
                 brightness+=(Color.red(color)*2126L+Color.green(color)*7152L+Color.blue(color)*722L)/10000;count++;
             }
-            if(count>0) app.dim=1f-.58f*(brightness/(255f*count));
+            if(count>0) app.dim=Math.max(.78f,1f-.20f*(brightness/(255f*count)));
         } catch(Exception ignored) {}
         app.text=layout(app.label,label,220,1);return app;
     }
@@ -263,14 +263,15 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
             App app=apps.get(i);RectF r=app.rect;boolean selected=focus==8&&shelfFocus==i;
             float grow=selected?1+.06f*focusProgress:1;
             c.save();c.scale(grow,grow,r.centerX(),r.centerY());
-            fill.setColor(selected?FOCUSED:0xFF24262C);c.drawRoundRect(r,22,22,fill);
-            if(selected) {border.setColor(TEXT);border.setStrokeWidth(2);c.drawRoundRect(r,22,22,border);}
+            fill.setColor(selected?0xFF303640:0xFF242830);c.drawRoundRect(r,22,22,fill);
+            border.setColor(selected?0xFFD4C6B4:0xFF3B4049);border.setStrokeWidth(selected?2.5f:1);c.drawRoundRect(r,22,22,border);
+            if(selected) {fill.setColor(0xFFBBA48A);scratch.set(r.left+22,r.bottom-7,r.right-22,r.bottom-4);c.drawRoundRect(scratch,2,2,fill);}
             c.clipRect(r.left+8,r.top+8,r.right-8,r.bottom-8);
             bitmapPaint.setAlpha(Math.round(255*(selected?app.dim+(1-app.dim)*focusProgress:app.dim)));
             if(app.image!=null) {
-                float k=Math.min((r.width()-24)/app.image.getWidth(),64f/app.image.getHeight());
+                float k=Math.min((r.width()-28)/app.image.getWidth(),76f/app.image.getHeight());
                 float w=app.image.getWidth()*k,h=app.image.getHeight()*k;
-                scratch.set(r.centerX()-w/2,r.top+12,r.centerX()+w/2,r.top+12+h);c.drawBitmap(app.image,null,scratch,bitmapPaint);
+                scratch.set(r.centerX()-w/2,r.top+10,r.centerX()+w/2,r.top+10+h);c.drawBitmap(app.image,null,scratch,bitmapPaint);
                 drawLayout(c,app.text,r.left+10,r.bottom-36);
             } else {
                 if(app.kind==1) BrowserShortcut.draw(c,r.centerX(),r.centerY()-20,38,selected?TEXT:MUTED);
@@ -365,9 +366,14 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
         }).show();
     }
     private void showInputs() {
-        List<HomeApps.Item> hdmi=new ArrayList<>();for(HomeApps.Item i:inputs)if(i.kind==HomeApps.INPUT)hdmi.add(i);
+        // Query TV inputs on demand, not only on the initial app-shelf load.
+        // HDMI hot-plug and CEC device labels can change while Bento stays open.
+        List<HomeApps.Item> hdmi=new ArrayList<>();for(HomeApps.Item i:HomeApps.allInputs(activity))if(i.kind==HomeApps.INPUT)hdmi.add(i);
         if(hdmi.isEmpty()){message(Ui.tr("No HDMI inputs found"));return;}
-        String[] labels=new String[hdmi.size()];for(int i=0;i<labels.length;i++)labels[i]=hdmi.get(i).label;
+        String[] labels=new String[hdmi.size()];for(int i=0;i<labels.length;i++) {
+            HomeApps.Item port=hdmi.get(i);
+            labels[i]=port.label+(port.connected?"  ·  "+Ui.tr("Connected"):"  ·  "+Ui.tr("No signal"));
+        }
         dialog=new NightDialogs.Builder(activity).setTitle(Ui.tr("HDMI Inputs")).setItems(labels,(d,n)->open(hdmi.get(n))).show();
     }
     private void showAllApps() {
