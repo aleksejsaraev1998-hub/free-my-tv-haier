@@ -23,7 +23,7 @@ ns = '{http://schemas.android.com/apk/res/android}'
 manifest = ET.parse(root / 'app/AndroidManifest.xml').getroot()
 assert manifest.get('package') == package, 'Unexpected package'
 assert {e.get(ns+'name') for e in manifest.findall('uses-permission')} == {
-    'android.permission.INTERNET', 'android.permission.ACCESS_NETWORK_STATE'}, 'Unexpected permission'
+    'android.permission.INTERNET', 'android.permission.ACCESS_NETWORK_STATE'} | ({'android.permission.RECORD_AUDIO'} if args.profile == 'bento-design' else set()), 'Unexpected permission'
 assert not manifest.findall('.//receiver'), 'Preview must not receive boot/update broadcasts'
 assert is_home == any(e.get(ns+'name') == 'android.intent.category.HOME' for e in manifest.findall('.//category')), 'Unexpected HOME role'
 with zipfile.ZipFile(apk) as archive:
