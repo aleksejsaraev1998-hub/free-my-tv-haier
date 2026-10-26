@@ -11,9 +11,9 @@ import argparse
 PIN = 'aa34335d25fa2224053d1bb16851e4522a6bbeb0'
 parser = argparse.ArgumentParser()
 parser.add_argument('source')
-parser.add_argument('--profile', choices=['standard', 'lite', 'bento', 'bento-home'], default='standard')
+parser.add_argument('--profile', choices=['standard', 'lite', 'bento', 'bento-home', 'bento-design'], default='standard')
 args = parser.parse_args()
-lite = args.profile in ('lite', 'bento', 'bento-home')
+lite = args.profile in ('lite', 'bento', 'bento-home', 'bento-design')
 home_variant = args.profile == 'bento-home'
 PACKAGE = 'io.freemytv.haierpreview.home' if home_variant else 'io.freemytv.haierpreview' + ('.' + args.profile if args.profile != 'standard' else '')
 label = 'Free My TV Haier ' + ('Bento HOME Test' if home_variant else 'Bento Preview' if args.profile == 'bento' else 'Lite Preview' if lite else 'Preview')
@@ -130,7 +130,7 @@ for catalogue in root.glob('app/assets/i18n/*.json'):
     for key, value in additions.items():
         data.setdefault(key, value)
     catalogue.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
-if args.profile in ('bento', 'bento-home'):
+if args.profile in ('bento', 'bento-home', 'bento-design'):
     from calendar_deps import install
     install(root)
     build = root / 'build.sh'
