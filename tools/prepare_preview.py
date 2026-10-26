@@ -16,7 +16,7 @@ args = parser.parse_args()
 lite = args.profile in ('lite', 'bento', 'bento-home', 'bento-design')
 home_variant = args.profile == 'bento-home'
 PACKAGE = 'io.freemytv.haierpreview.home' if home_variant else ('io.freemytv.haierpreview.bentodesign' if args.profile == 'bento-design' else 'io.freemytv.haierpreview' + ('.' + args.profile if args.profile != 'standard' else ''))
-label = 'Free My TV Haier ' + ('Bento HOME Test' if home_variant else 'Bento Preview' if args.profile == 'bento' else 'Lite Preview' if lite else 'Preview')
+label = 'Bento HOME' if home_variant else ('Bento Design' if args.profile == 'bento-design' else 'Free My TV Haier ' + ('Bento Preview' if args.profile == 'bento' else 'Lite Preview' if lite else 'Preview'))
 root = Path(args.source).resolve()
 head = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
 if head != PIN:
@@ -141,6 +141,8 @@ if args.profile in ('bento', 'bento-home', 'bento-design'):
     for source in Path(__file__).with_name('bento').glob('*.java'):
         (root / 'app/src/io/freemytv' / source.name).write_text(
             source.read_text().replace('package io.freemytv;', 'package ' + PACKAGE + ';'))
+    import shutil
+    shutil.copyfile(Path(__file__).with_name('bento') / 'bento-lake.jpg', root / 'app/assets/bento-lake.jpg')
     home = root / 'app/src/io/freemytv/HomeActivity.java'
     home.write_text(home.read_text().replace('HomeView', 'BentoView').replace(
         'if (level >= TRIM_MEMORY_COMPLETE) Recs.get(this).trim();',
@@ -151,10 +153,12 @@ if args.profile in ('bento', 'bento-home', 'bento-design'):
                  '                        return true;\n'
                  '                    }')
     translations = json.loads(Path(__file__).with_name('bento').joinpath('translations-ru.json').read_text())
+    used_code = '\n'.join(p.read_text() for p in root.glob('app/**/*.java'))
     for catalogue in root.glob('app/assets/i18n/*.json'):
         data = json.loads(catalogue.read_text())
         for key, value in translations.items():
-            data.setdefault(key, value if catalogue.stem == 'ru' else key)
+            if 'Ui.tr("' + key + '")' in used_code:
+                data.setdefault(key, value if catalogue.stem == 'ru' else key)
         catalogue.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n')
 ns = 'http://schemas.android.com/apk/res/android'
 ET.register_namespace('android', ns)
@@ -162,10 +166,12 @@ a = lambda name: '{' + ns + '}' + name
 manifest = root / 'app/AndroidManifest.xml'
 tree = ET.parse(manifest)
 m = tree.getroot()
-m.set(a('versionCode'), '9')
-m.set(a('versionName'), '1.1-haier-' + args.profile + '-preview.8')
+m.set(a('versionCode'), '12')
+m.set(a('versionName'), '1.1-haier-' + args.profile + '-ui.12')
 # Android 11+ package visibility: ask only for browser intent handlers.
 queries = m.find('queries')
+for visible_package in ['com.mediatek.tvinput', 'com.google.android.tvlauncher']:
+    ET.SubElement(queries, 'package', {a('name'): visible_package})
 intent = ET.SubElement(queries, 'intent')
 ET.SubElement(intent, 'action', {a('name'): 'android.intent.action.MAIN'})
 ET.SubElement(intent, 'category', {a('name'): 'android.intent.category.APP_BROWSER'})

@@ -1,36 +1,25 @@
 #!/usr/bin/env python3
-"""Check the actual Java geometry without Android or a TV."""
+"""Exercise HOME bounds and every D-pad target using the production navigation table."""
 from pathlib import Path
-import os
-import subprocess
-import tempfile
-
+import os, subprocess, tempfile
 source=Path(__file__).with_name('bento')/'BentoLayout.java'
 harness='''package io.freemytv;
+import java.util.*;
 public class BentoLayoutCheck {
-    public static void main(String[] args) {
-        float[][] tiles=BentoLayout.TILES;
-        for(int i=0;i<tiles.length;i++) {
-            float[] r=tiles[i];
-            if(r[0]<40 || r[1]<40 || r[2]>1880 || r[3]>820) throw new AssertionError("Tile outside margins");
-            if(r[2]-r[0]<2*40 || r[3]-r[1]<2*40) throw new AssertionError("Invalid content area");
-            float dx=(r[2]-r[0])*.02f,dy=(r[3]-r[1])*.02f;
-            if(r[0]-dx<0 || r[1]-dy<0 || r[2]+dx>1920 || r[3]+dy>1080) throw new AssertionError("Focus outside screen");
-            for(int j=i+1;j<tiles.length;j++) {
-                float[] s=tiles[j];
-                if(Math.max(r[0],s[0])<Math.min(r[2],s[2]) && Math.max(r[1],s[1])<Math.min(r[3],s[3])) throw new AssertionError("Overlapping tiles");
-            }
-        }
-        float[] shelf=BentoLayout.SHELF;
-        if(shelf[0]!=40 || shelf[2]!=1880 || 1080-shelf[3]!=40 || shelf[1]-820!=40) throw new AssertionError("Shelf margins");
-        if(tiles[2][0]-tiles[0][2]!=24 || tiles[3][0]-tiles[2][2]!=24 || tiles[6][0]-tiles[3][2]!=24) throw new AssertionError("Horizontal gaps");
-        if(tiles[1][1]-tiles[0][3]!=24 || tiles[4][1]-tiles[3][3]!=24 || tiles[5][1]-tiles[4][3]!=24) throw new AssertionError("Vertical gaps");
-        System.out.println("PASS: 40px outer margins/padding, 24px tile gaps, no overlap, focus inside 1920x1080");
-    }
+ public static void main(String[] args) {
+  float[][] t=BentoLayout.TILES;
+  for(int i=0;i<t.length;i++) {if(i==3)continue;float[] r=t[i];
+   if(r[0]<60||r[1]<40||r[2]>1880||r[3]>740||r[2]<=r[0]||r[3]<=r[1])throw new AssertionError("Bounds "+i);
+   for(int j=i+1;j<t.length;j++){if(j==3)continue;float[] q=t[j];if(Math.max(r[0],q[0])<Math.min(r[2],q[2])&&Math.max(r[1],q[1])<Math.min(r[3],q[3]))throw new AssertionError("Overlap");}
+  }
+  for(int start=0;start<9;start++){if(start==3)continue;Set<Integer> seen=new HashSet<>();seen.add(start);for(int step=0;step<9;step++)for(int f:new ArrayList<>(seen))for(int key=19;key<=22;key++){int next=BentoLayout.next(f,key);if(next<0||next>8||next==3)throw new AssertionError("Invalid target");seen.add(next);}if(seen.size()!=8)throw new AssertionError("Unreachable from "+start);}
+  if(104+(BentoLayout.DOCK_VISIBLE-1)*190+144>1850)throw new AssertionError("Dock overflows");
+  if(BentoLayout.next(8,19)!=2||BentoLayout.next(2,20)!=8)throw new AssertionError("Calendar/dock transition");
+  System.out.println("PASS: reference geometry, no overlap, every HOME focus reachable, dock bounds");
+ }
 }'''
 jdk=Path(os.environ['JAVA_HOME'])/'bin'
-with tempfile.TemporaryDirectory(prefix='bento-layout-') as directory:
-    root=Path(directory)
-    (root/'BentoLayoutCheck.java').write_text(harness)
-    subprocess.run([str(jdk/'javac'),'-d',str(root),str(source),str(root/'BentoLayoutCheck.java')],check=True)
-    subprocess.run([str(jdk/'java'),'-cp',str(root),'io.freemytv.BentoLayoutCheck'],check=True)
+with tempfile.TemporaryDirectory() as d:
+ p=Path(d);(p/'BentoLayoutCheck.java').write_text(harness)
+ subprocess.run([str(jdk/'javac'),'-d',d,str(source),str(p/'BentoLayoutCheck.java')],check=True)
+ subprocess.run([str(jdk/'java'),'-cp',d,'io.freemytv.BentoLayoutCheck'],check=True)
