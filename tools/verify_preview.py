@@ -16,7 +16,7 @@ args = p.parse_args()
 root = args.source.resolve()
 args.output.mkdir(parents=True, exist_ok=True)
 is_home = args.profile == 'bento-home'
-package = 'io.freemytv.haierpreview.home' if is_home else 'io.freemytv.haierpreview' + ('.' + args.profile if args.profile != 'standard' else '')
+package = 'io.freemytv.haierpreview.home' if is_home else ('io.freemytv.haierpreview.bentodesign' if args.profile == 'bento-design' else 'io.freemytv.haierpreview' + ('.' + args.profile if args.profile != 'standard' else ''))
 apk = root / 'FreeMyTV.apk'
 bt = Path(os.environ['ANDROID_HOME']) / 'build-tools/34.0.0'
 ns = '{http://schemas.android.com/apk/res/android}'
