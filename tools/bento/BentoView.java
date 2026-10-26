@@ -181,10 +181,11 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
         App app=new App(); app.pkg=pkg;app.kind=0;app.label=pkg;app.dim=.88f;
         for(String[] c:choices) if(c[0].equals(pkg)) app.label=c[1];
         try {
-            Drawable drawable=activity.getPackageManager().getApplicationBanner(pkg);
-            if(drawable==null) drawable=activity.getPackageManager().getApplicationIcon(pkg);
+            // PS5-inspired square launcher icons: TV banners are often 16:9 and crop badly in tiles.
+            Drawable drawable=activity.getPackageManager().getApplicationIcon(pkg);
+            if(drawable==null) drawable=activity.getPackageManager().getApplicationBanner(pkg);
             int dw=Math.max(1,drawable.getIntrinsicWidth()),dh=Math.max(1,drawable.getIntrinsicHeight());
-            float k=Math.min(240f/dw,96f/dh);
+            float k=Math.min(96f/dw,96f/dh);
             int w=Math.max(1,Math.round(dw*k)),h=Math.max(1,Math.round(dh*k));
             app.image=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);
             drawable.setBounds(0,0,w,h);drawable.draw(new Canvas(app.image));
@@ -269,9 +270,12 @@ final class BentoView extends View implements BentoData.Listener, CalendarFeed.L
             c.clipRect(r.left+8,r.top+8,r.right-8,r.bottom-8);
             bitmapPaint.setAlpha(Math.round(255*(selected?app.dim+(1-app.dim)*focusProgress:app.dim)));
             if(app.image!=null) {
-                float k=Math.min((r.width()-28)/app.image.getWidth(),76f/app.image.getHeight());
+                // Square app emblem above the label; original card geometry and navigation remain intact.
+                float side=Math.min(78f,Math.min(r.width()-24, r.height()-42));
+                float k=Math.min(side/app.image.getWidth(),side/app.image.getHeight());
                 float w=app.image.getWidth()*k,h=app.image.getHeight()*k;
-                scratch.set(r.centerX()-w/2,r.top+10,r.centerX()+w/2,r.top+10+h);c.drawBitmap(app.image,null,scratch,bitmapPaint);
+                scratch.set(r.centerX()-w/2,r.top+7+(side-h)/2,r.centerX()+w/2,r.top+7+(side+h)/2);
+                c.drawBitmap(app.image,null,scratch,bitmapPaint);
                 drawLayout(c,app.text,r.left+10,r.bottom-36);
             } else {
                 if(app.kind==1) BrowserShortcut.draw(c,r.centerX(),r.centerY()-20,38,selected?TEXT:MUTED);
